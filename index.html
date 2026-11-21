@@ -1,17 +1,73 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
+    <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#101b2b" />
-    <meta
-      name="description"
-      content="Bijli Wala solar installation management workspace"
-    />
-    <title>Bijli Wala | Solar Operations</title>
+    <meta name="theme-color" content="#0b1320" />
+    <title>Login | Bijli Wala</title>
+    <link rel="stylesheet" href="css/variables.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/animations.css" />
+    <script defer src="js/data.js"></script>
+    <script defer src="js/animations.js"></script>
+    <script defer src="js/components.js"></script>
+    <script defer src="js/layout.js"></script>
+    <script defer src="js/pages/login.js"></script>
   </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
+  <body data-page="Login">
+    <main class="login-page">
+      <div class="login-hero-copy">
+        <h1>Powering a<br /><em>sustainable</em> tomorrow.</h1>
+        <p>
+          Manage enquiries, projects, inventory, and solar installations in one
+          workspace.
+        </p>
+      </div>
+      <section class="login-panel" aria-labelledby="login-title">
+        <div class="login-brand"><span data-icon="sun"></span>Bijli Wala</div>
+        <h2 id="login-title">Welcome back</h2>
+        <p class="login-subtitle">
+          Sign in to your solar operations workspace.
+        </p>
+        <form id="login-form">
+          <label for="email">Work email</label>
+          <div class="login-input">
+            <span data-icon="mail"></span
+            ><input
+              id="email"
+              required
+              type="email"
+              autocomplete="username"
+              placeholder="you@company.in"
+            />
+          </div>
+          <label for="password">Password</label>
+          <div class="login-input">
+            <span data-icon="lock-keyhole"></span
+            ><input
+              required
+              id="password"
+              type="password"
+              autocomplete="current-password"
+              placeholder="Enter your password"
+            /><button
+              type="button"
+              id="visibility"
+              aria-label="Show password"
+              data-icon="eye"
+            ></button>
+          </div>
+          <p class="login-error" role="alert" hidden></p>
+          <button class="login-submit">Sign in</button>
+        </form>
+        <div class="login-divider"><span>Demo workspace</span></div>
+        <p class="login-credentials">
+          Email <strong>admin@bijliwala.in</strong><br />Password
+          <strong>SolarDemo</strong>
+        </p>
+        <button type="button" class="login-demo">Explore demo</button>
+      </section>
+    </main>
   </body>
 </html>

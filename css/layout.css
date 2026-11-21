@@ -1,0 +1,236 @@
+.shell {
+  display: flex;
+  min-height: 100dvh;
+}
+.sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: 230px;
+  background: linear-gradient(168deg, #142539 0%, #101d30 65%, #112236 100%);
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;
+}
+.brand {
+  height: 87px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  font-size: 23px;
+  font-weight: 750;
+  letter-spacing: -1px;
+}
+.brand > span {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--gold);
+  color: #322314;
+}
+.brand small,
+.account small {
+  display: block;
+}
+.brand small {
+  font-size: 9px;
+  line-height: 1.5;
+  font-weight: 750;
+  letter-spacing: 1.7px;
+  color: #b0bdcd;
+}
+.nav-label {
+  margin: 33px 25px 13px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+  color: #a3b3c8;
+}
+.sidebar nav {
+  display: grid;
+  gap: 5px;
+  padding: 0 14px;
+}
+.sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: #c7d2e1;
+  font-size: 15px;
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.sidebar a:hover,
+.icon-btn:hover,
+.row-btn:hover {
+  background: #25364a;
+  color: white;
+}
+.sidebar .selected {
+  color: #ffd28c;
+  border-color: #695436;
+  background: #383329;
+}
+.selected i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: auto;
+  background: var(--gold);
+}
+.account {
+  border-top: 1px solid var(--line);
+  margin-top: auto;
+  padding: 20px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.account small {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.avatar {
+  width: 37px;
+  height: 37px;
+  border: 1px solid #48645c;
+  background: #24443e;
+  color: #a7e9cc;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+}
+.account button {
+  margin-left: auto;
+}
+.main-area {
+  margin-left: 230px;
+  min-width: 0;
+  width: calc(100% - 230px);
+}
+.top-header {
+  height: 66px;
+  border-bottom: 1px solid var(--line);
+  background: #142032;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+}
+.crumb,
+.header-tools,
+.date,
+.global-search,
+.search-box,
+.primary-btn,
+.secondary-btn,
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.crumb,
+.header-tools {
+  font-size: 14px;
+}
+.crumb span,
+.crumb svg,
+.date,
+.muted {
+  color: var(--muted);
+}
+.header-tools {
+  gap: 20px;
+}
+.global-search,
+.search-box,
+select,
+.form-grid input {
+  color: #e5edf8;
+  background: #152132;
+  border: 1px solid #394a5e;
+  border-radius: 7px;
+}
+.global-search {
+  color: #b9c6d8;
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.global-search kbd {
+  font: 11px inherit;
+  background: #28374a;
+  border-radius: 3px;
+  padding: 1px 4px;
+  margin-left: 10px;
+}
+.date {
+  font-size: 13px;
+}
+.content {
+  max-width: 1700px;
+  margin: auto;
+  padding: 29px 32px 40px;
+}
+.sidebar {
+  background:
+    linear-gradient(
+      180deg,
+      #0d1626 0%,
+      rgba(13, 22, 38, 0.92) 48%,
+      rgba(13, 22, 38, 0.55) 75%,
+      rgba(13, 22, 38, 0.2) 100%
+    ),
+    url("../assets/hero-solar.jpg") bottom center / cover no-repeat,
+    #0d1626;
+  overflow-y: auto;
+}
+.sidebar nav {
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+}
+.sidebar nav a {
+  color: #e8edf5;
+  position: relative;
+  text-shadow: 0 1px 4px #07111c;
+}
+.sidebar nav .selected {
+  color: #ffda9b;
+  background: transparent;
+  border-color: transparent;
+}
+.nav-indicator {
+  position: absolute;
+  inset: 0 14px auto;
+  height: calc((100% - 35px) / 8);
+  z-index: -1;
+  pointer-events: none;
+  background: #383329;
+  border: 1px solid #80633b;
+  border-radius: 8px;
+  transform: translateY(calc(var(--active-index) * (100% + 5px)));
+}
+.sidebar .account {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(13, 22, 38, 0.72);
+  backdrop-filter: blur(12px);
+  margin: auto 10px 12px;
+  border-radius: 24px;
+  padding: 10px;
+  gap: 7px;
+}
+.account small {
+  color: #d1ddea;
+}
