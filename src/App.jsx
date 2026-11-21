@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Search } from "lucide-react";
+import { CircleCheck } from "lucide-react";
 import AppShell from "./components/layout/AppShell";
-import Modal from "./components/ui/Modal";
+import CommandPalette from "./components/ui/CommandPalette";
 import RecordEditor from "./components/ui/RecordEditor";
 import { modules, schemas, solarApi } from "./data/mockSolarData";
 import Dashboard from "./pages/Dashboard";
@@ -35,7 +35,6 @@ export default function App() {
     [data, setData] = useState(() => solarApi.list()),
     [editor, setEditor] = useState(null),
     [search, setSearch] = useState(false),
-    [query, setQuery] = useState(""),
     [notice, setNotice] = useState(""),
     [name, setName] = useState(
       () => sessionStorage.getItem("bw-user") ?? "Arjun Mehta",
@@ -49,7 +48,6 @@ export default function App() {
     setEditor({ module, record });
   }
   function openSearch() {
-    setQuery("");
     setSearch(true);
   }
   useEffect(() => {
@@ -100,19 +98,7 @@ export default function App() {
         }}
       />
     );
-  const Screen = screens[page],
-    matches = Object.entries(data)
-      .flatMap(([m, rows]) =>
-        rows
-          .filter((r) =>
-            [m, ...schemas[m].fields.map((f) => r[f]), r.id, r.status]
-              .join(" ")
-              .toLowerCase()
-              .includes(query.trim().toLowerCase()),
-          )
-          .map((r) => ({ m, r })),
-      )
-      .slice(0, 25);
+  const Screen = screens[page];
   return (
     <AppShell
       {...{ page, navigate, name }}
@@ -133,48 +119,35 @@ export default function App() {
           save={(m, r) => {
             setData(solarApi.save(m, r));
             setEditor(null);
-            setNotice(
-              schemas[m].single.charAt(0).toUpperCase() +
-                schemas[m].single.slice(1) +
-                " saved",
-            );
+            const type = schemas[m].single;
+            const old = data[m].find((item) => item.id === r.id);
+            const verb = !old
+              ? "created"
+              : m === "Installations" &&
+                  old.status === "Scheduled" &&
+                  r.status === "On site"
+                ? "dispatched"
+                : "updated";
+            setNotice({
+              id: performance.now(),
+              text: type[0].toUpperCase() + type.slice(1) + " " + verb,
+            });
           }}
         />
       )}
       {search && (
-        <Modal title="Search workspace" onClose={() => setSearch(false)}>
-          <label className="search-box">
-            <Search size={17} />
-            <input
-              autoFocus
-              placeholder="Search records, cities or customers…"
-              aria-label="Search all records"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </label>
-          <div className="results">
-            {matches.map(({ m, r }) => (
-              <button
-                key={r.id}
-                onClick={() => {
-                  setSearch(false);
-                  edit(m, r);
-                }}
-              >
-                <span>{r[schemas[m].fields[0]]}</span>
-                <small>
-                  {m} · {r.id}
-                </small>
-              </button>
-            ))}
-            {!matches.length && <p>No matching records.</p>}
-          </div>
-        </Modal>
+        <CommandPalette
+          data={data}
+          close={() => setSearch(false)}
+          navigate={navigate}
+          edit={edit}
+        />
       )}
       {notice && (
-        <div className="toast" role="status">
-          {notice}
+        <div className="toast" key={notice.id} role="status">
+          <CircleCheck size={18} />
+          {notice.text}
+          <i aria-hidden="true" />
         </div>
       )}
     </AppShell>

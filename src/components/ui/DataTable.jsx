@@ -1,7 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import StatusBadge from "./StatusBadge";
 import { displayValue } from "../../data/mockSolarData";
-export default function DataTable({ rows, fields, onSelect }) {
+export default function DataTable({ rows, fields, onSelect, filterKey }) {
   return (
     <div className="table-scroll">
       <table>
@@ -17,9 +17,15 @@ export default function DataTable({ rows, fields, onSelect }) {
             </th>
           </tr>
         </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id}>
+        <tbody key={filterKey}>
+          {rows.map((r, index) => (
+            <tr
+              key={r.id}
+              style={{ "--row-delay": Math.min(index, 8) * 24 + "ms" }}
+              onClick={(e) => {
+                if (!e.target.closest("button")) onSelect(r);
+              }}
+            >
               <td>
                 <button className="id-link" onClick={() => onSelect(r)}>
                   {r.id}

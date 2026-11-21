@@ -75,6 +75,7 @@ export default function MonthlyInstallationsBar({ rows }) {
             />
             <Bar
               dataKey="Installations"
+              isAnimationActive={false}
               fill="#f4b45e"
               radius={[4, 4, 0, 0]}
               maxBarSize={36}

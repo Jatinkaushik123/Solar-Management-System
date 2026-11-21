@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Modal from "./Modal";
+import WarrantyTimeline from "./WarrantyTimeline";
 import ProgressBar from "./ProgressBar";
 import { schemas, dateString } from "../../data/mockSolarData";
 const nextStep = {
@@ -65,7 +66,11 @@ export default function RecordEditor({
     });
   }
   return (
-    <Modal title={record?.id || "New " + schema.single} onClose={close}>
+    <Modal
+      variant="drawer"
+      title={record?.id || "New " + schema.single}
+      onClose={close}
+    >
       <form onSubmit={submit}>
         <p className="form-caption">
           {record?.id
@@ -91,7 +96,14 @@ export default function RecordEditor({
                           : "text"
                   }
                   min={
-                    f.includes("Capacity") ? "0.01" : numeric ? "0" : undefined
+                    f === "Expiry date"
+                      ? draft.coverageStart ||
+                        (!record?.id ? dateString(new Date()) : undefined)
+                      : f.includes("Capacity")
+                        ? "0.01"
+                        : numeric
+                          ? "0"
+                          : undefined
                   }
                   step={
                     /Capacity|Amount/.test(f)
@@ -107,6 +119,22 @@ export default function RecordEditor({
               </label>
             );
           })}
+          {module === "Warranty" && (
+            <label>
+              Coverage start
+              <input
+                type="date"
+                max={draft["Expiry date"] || undefined}
+                value={
+                  draft.coverageStart ??
+                  (record?.id ? "" : dateString(new Date()))
+                }
+                onChange={(e) =>
+                  setDraft({ ...draft, coverageStart: e.target.value })
+                }
+              />
+            </label>
+          )}
           {module !== "Inventory" && (
             <label>
               Status
@@ -143,6 +171,48 @@ export default function RecordEditor({
           <button className="primary-btn">Save {schema.single}</button>
         </div>
       </form>
+      {record?.id &&
+        ((module === "Warranty" && record.status !== "Closed") ||
+          (module === "Installations" && record.status === "Scheduled")) && (
+          <div className="workflow">
+            <small>
+              {module === "Warranty" ? "Claim management" : "Field operations"}
+            </small>
+            <button
+              className="secondary-btn"
+              disabled={
+                Object.entries(draft).some(([k, v]) => v !== record[k]) ||
+                (module === "Warranty" &&
+                  record.status === "Active" &&
+                  record["Expiry date"] < dateString(new Date()))
+              }
+              onClick={() => {
+                try {
+                  save(module, {
+                    ...record,
+                    status:
+                      module === "Installations"
+                        ? "On site"
+                        : record.status === "Active"
+                          ? "Claim open"
+                          : "Active",
+                  });
+                } catch {
+                  setError("Could not save this action. Try again.");
+                }
+              }}
+            >
+              {module === "Installations"
+                ? "Dispatch crew"
+                : record.status === "Active"
+                  ? "Open claim"
+                  : "Resolve claim"}
+            </button>
+          </div>
+        )}
+      {module === "Warranty" && record?.id && (
+        <WarrantyTimeline record={record} data={data} />
+      )}
       {record?.id && step && record.status === step[0] && (
         <div className="workflow">
           <small>Next step</small>

@@ -1,0 +1,403 @@
+:root {
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar {
+  background:
+    linear-gradient(
+      180deg,
+      #0d1626 0%,
+      rgba(13, 22, 38, 0.92) 48%,
+      rgba(13, 22, 38, 0.55) 75%,
+      rgba(13, 22, 38, 0.2) 100%
+    ),
+    url("./assets/hero-solar.jpg") bottom center / cover no-repeat,
+    #0d1626;
+  overflow-y: auto;
+}
+.sidebar nav {
+  position: relative;
+  isolation: isolate;
+  flex-shrink: 0;
+}
+.sidebar nav a {
+  color: #e8edf5;
+  position: relative;
+  text-shadow: 0 1px 4px #07111c;
+}
+.sidebar nav .selected {
+  color: #ffda9b;
+  background: transparent;
+  border-color: transparent;
+}
+.nav-indicator {
+  position: absolute;
+  inset: 0 14px auto;
+  height: calc((100% - 35px) / 8);
+  z-index: -1;
+  pointer-events: none;
+  background: #383329;
+  border: 1px solid #80633b;
+  border-radius: 8px;
+  transform: translateY(calc(var(--active-index) * (100% + 5px)));
+}
+.sidebar .account {
+  flex-shrink: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(13, 22, 38, 0.72);
+  backdrop-filter: blur(12px);
+  margin: auto 10px 12px;
+  border-radius: 24px;
+  padding: 10px;
+  gap: 7px;
+}
+.account small {
+  color: #d1ddea;
+}
+.kpi strong {
+  position: relative;
+  font-variant-numeric: tabular-nums;
+}
+.primary-btn,
+.login-submit {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+tbody tr {
+  cursor: pointer;
+}
+.drawer.modal {
+  position: fixed;
+  inset: 0 0 0 auto;
+  margin: 0;
+  width: min(510px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: 100vw;
+  border-radius: 16px 0 0 16px;
+  border-width: 0 0 0 1px;
+  box-shadow: -12px 0 44px #020b1860;
+}
+.drawer .modal-inner {
+  min-height: 100%;
+  padding: clamp(20px, 3vw, 32px);
+}
+.modal.drawer header {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 17px;
+}
+.modal::backdrop {
+  backdrop-filter: blur(5px);
+  background: #06101ca8;
+}
+body:has(dialog[open]) {
+  overflow: hidden;
+}
+.warranty-detail {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin-top: 22px;
+}
+.coverage-heading,
+.coverage-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.coverage-heading svg {
+  color: #76dcca;
+}
+.warranty-detail h3 {
+  font-weight: 650;
+  font-size: 16px;
+}
+.coverage-label {
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 10px;
+}
+.warranty-detail progress {
+  display: block;
+  width: 100%;
+  height: 7px;
+  margin-top: 8px;
+  accent-color: #65d8bf;
+}
+.warranty-detail > h3 {
+  margin-top: 26px;
+}
+.serial-tag {
+  color: #abdcd4;
+  font:
+    13px ui-monospace,
+    monospace;
+  margin-top: 6px;
+}
+.warranty-detail ol {
+  margin: 18px 0;
+  padding-left: 14px;
+}
+.warranty-detail li {
+  position: relative;
+  border-left: 1px solid #46596c;
+  padding: 0 0 16px 15px;
+  font-size: 14px;
+}
+.warranty-detail li::before {
+  content: "";
+  position: absolute;
+  left: -4px;
+  top: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #71d7c5;
+}
+.warranty-detail li small,
+.warranty-detail li p {
+  display: block;
+  color: var(--muted);
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+}
+.spotlight.modal {
+  width: min(540px, calc(100vw - 24px));
+}
+.spotlight .results {
+  margin-top: 12px;
+}
+.spotlight .results button {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 7px;
+}
+.spotlight .results small {
+  display: block;
+}
+.spotlight .results button > svg {
+  color: #adc1d7;
+}
+.spotlight .results button > svg:last-child {
+  margin-left: auto;
+}
+.results [aria-selected="true"] {
+  background: #2a3b50;
+}
+.spotlight footer {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px #05101b60;
+}
+.toast i {
+  position: absolute;
+  inset: auto 0 0;
+  height: 3px;
+  background: #7adab8;
+  transform-origin: left;
+}
+@media (max-height: 740px) {
+  .sidebar nav a:not(.selected) {
+    background-color: rgba(13, 22, 38, 0.65);
+  }
+}
+@media (max-width: 1020px) and (min-width: 761px) {
+  .sidebar .account {
+    margin-inline: 5px;
+    padding: 7px;
+    gap: 5px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes pulse {
+    50% {
+      transform: scale(1.13);
+    }
+  }
+  @keyframes ambient {
+    50% {
+      box-shadow: 0 0 0 4px #ffcb7022;
+    }
+  }
+  @keyframes drawer-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes spotlight-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateX(28px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes countdown {
+    to {
+      transform: scaleX(0);
+    }
+  }
+  .page-heading {
+    animation: rise 0.4s var(--motion-ease) backwards;
+  }
+  .kpi {
+    --delay: 50ms;
+    animation: rise 0.48s var(--motion-ease) var(--delay) backwards;
+    transition:
+      transform 0.23s var(--motion-ease),
+      box-shadow 0.23s;
+  }
+  .kpi:nth-child(2) {
+    --delay: 100ms;
+  }
+  .kpi:nth-child(3) {
+    --delay: 150ms;
+  }
+  .kpi:nth-child(4) {
+    --delay: 200ms;
+  }
+  .nav-indicator {
+    transition: transform 0.25s var(--motion-ease);
+  }
+  .sidebar nav svg,
+  .row-btn svg {
+    transition: transform 0.25s var(--motion-ease);
+  }
+  .selected i {
+    animation: ambient 2.5s ease-in-out infinite;
+  }
+  .primary-btn,
+  .login-submit {
+    transition:
+      transform 0.2s var(--motion-ease),
+      box-shadow 0.2s;
+  }
+  .primary-btn::after,
+  .login-submit::after {
+    content: "";
+    position: absolute;
+    inset: -40% 0;
+    pointer-events: none;
+    background: linear-gradient(
+      110deg,
+      transparent 35%,
+      #ffffff47 50%,
+      transparent 65%
+    );
+    transform: translateX(-110%);
+  }
+  .primary-btn:active,
+  .login-submit:active {
+    transform: scale(0.97);
+  }
+  tbody tr {
+    animation: fade 0.28s ease var(--row-delay, 0ms) backwards;
+    transition: box-shadow 0.18s;
+  }
+  .drawer[open] {
+    animation: drawer-in 0.36s var(--motion-ease);
+  }
+  .spotlight[open] {
+    animation: spotlight-in 0.24s var(--motion-ease);
+  }
+  .modal[open]::backdrop {
+    animation: fade 0.24s ease;
+  }
+  .toast {
+    animation: toast-in 0.32s var(--motion-ease);
+  }
+  .toast i {
+    animation: countdown 3.5s linear forwards;
+  }
+  @media (hover: hover) {
+    .sidebar nav a:hover svg {
+      transform: translateX(3px);
+    }
+    .kpi:hover {
+      transform: translateY(-3px);
+      box-shadow:
+        0 0 0 1px #65d5bf70,
+        0 8px 20px -8px #103835;
+    }
+    .kpi:nth-child(odd):hover {
+      box-shadow:
+        0 0 0 1px #f4bc686e,
+        0 8px 20px -8px #49361f;
+    }
+    .kpi:hover .icon-tile {
+      animation: pulse 0.48s ease;
+    }
+    .primary-btn:hover,
+    .login-submit:hover {
+      box-shadow: 0 8px 20px -4px rgba(245, 158, 11, 0.4);
+    }
+    .primary-btn:hover::after,
+    .login-submit:hover::after {
+      transform: translateX(110%);
+      transition: transform 0.6s;
+    }
+    tbody tr:hover .row-btn svg {
+      transform: translateX(4px);
+    }
+  }
+}
+tbody tr:hover,
+tbody tr:focus-within {
+  box-shadow: inset 0 0 0 100vmax #82c9db0b;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  dialog::backdrop {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

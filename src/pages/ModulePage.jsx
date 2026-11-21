@@ -45,8 +45,13 @@ export default function ModulePage({ module, data, edit }) {
                 ? "warranties"
                 : module.toLowerCase())
           }
-          value={rows.length}
-          detail="All records"
+          value={filtered.length}
+          replay={query + status}
+          detail={
+            query || status !== "All statuses"
+              ? "Matching records"
+              : "All records"
+          }
           icon={Layers}
           color="blue"
         />
@@ -54,7 +59,8 @@ export default function ModulePage({ module, data, edit }) {
           <KpiCard
             key={s}
             label={s}
-            value={rows.filter((r) => r.status === s).length}
+            value={filtered.filter((r) => r.status === s).length}
+            replay={query + status}
             detail={
               schema.single.charAt(0).toUpperCase() +
               schema.single.slice(1) +
@@ -77,6 +83,7 @@ export default function ModulePage({ module, data, edit }) {
           statuses={schema.statuses}
         />
         <DataTable
+          filterKey={query + status}
           rows={filtered}
           fields={schema.fields}
           onSelect={(r) => edit(module, r)}

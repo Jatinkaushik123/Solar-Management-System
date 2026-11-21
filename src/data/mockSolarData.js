@@ -1,3 +1,4 @@
+import { captureWarranty } from "./warrantyHistory";
 export const modules = [
   "Dashboard",
   "Enquiries",
@@ -172,6 +173,30 @@ function seed(module, i) {
   return {
     id: schema.prefix + "-" + (1028 - i),
     status,
+    ...(module === "Warranty"
+      ? {
+          coverageStart: relativeDate(-365 - i),
+          history: [
+            {
+              date: relativeDate(-365 - i),
+              title: "Warranty registered",
+              detail: values.slice(0, 3).join(" · "),
+            },
+            ...(status === "Active"
+              ? []
+              : [
+                  {
+                    date: relativeDate(-14 - i),
+                    title:
+                      status === "Claim open"
+                        ? "Claim opened"
+                        : "Warranty closed",
+                    detail: values[2],
+                  },
+                ]),
+          ],
+        }
+      : {}),
     ...Object.fromEntries(schema.fields.map((key, j) => [key, values[j]])),
   };
 }
@@ -194,7 +219,11 @@ export const solarApi = {
     const data = this.list(),
       rows = data[module],
       schema = schemas[module];
-    const normalized = { ...record };
+    const previous = rows.find((r) => r.id === record.id);
+    const normalized =
+      module === "Warranty"
+        ? captureWarranty(record, previous, dateString(new Date()))
+        : { ...record };
     if (module === "Inventory")
       normalized.status =
         +record["Stock (units)"] === 0

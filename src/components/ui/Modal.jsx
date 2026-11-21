@@ -1,15 +1,21 @@
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
-export default function Modal({ title, children, onClose }) {
+export default function Modal({
+  title,
+  children,
+  onClose,
+  variant = "spotlight",
+}) {
   const ref = useRef(null);
   useEffect(() => {
     const el = ref.current;
     el.showModal();
+    el.querySelector('[role="combobox"]')?.focus({preventScroll:true});
     return () => el.close();
   }, []);
   return (
     <dialog
-      className="modal"
+      className={"modal " + variant}
       ref={ref}
       aria-label={title}
       onCancel={(e) => {

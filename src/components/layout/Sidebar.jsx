@@ -49,7 +49,8 @@ export default function Sidebar({ page, navigate, open, close, name, logout }) {
           </button>
         </div>
         <div className="nav-label">Workspace</div>
-        <nav>
+        <nav style={{ "--active-index": modules.indexOf(page) }}>
+          <span className="nav-indicator" aria-hidden="true" />
           {modules.map((m, i) => {
             const Icon = icons[i];
             return (

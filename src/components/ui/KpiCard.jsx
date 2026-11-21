@@ -1,4 +1,6 @@
+import CountUp from "./CountUp";
 export default function KpiCard({
+  replay,
   label,
   value,
   detail,
@@ -15,7 +17,7 @@ export default function KpiCard({
         </span>
       </div>
       <strong>
-        {value} <small>{unit}</small>
+        <CountUp value={value} replay={replay} /> <small>{unit}</small>
       </strong>
       <p>{detail}</p>
     </article>
