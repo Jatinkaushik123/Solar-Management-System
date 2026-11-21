@@ -72,19 +72,32 @@ h2 {
 }
 .kpi {
   padding: 17px 19px;
+  min-width: 0;
+  text-align: left;
 }
 .kpi-top {
   font-size: 14px;
   font-weight: 540;
   color: #c3cfdf;
-  gap: 5px;
+  gap: 8px;
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+}
+.kpi-top > span:first-child {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
 }
 .kpi strong,
 .donut-center strong {
+  display: block;
   font-size: 34px;
   letter-spacing: -1.5px;
   line-height: 1.2;
   font-weight: 650;
+  text-align: left;
   font-variant-numeric: tabular-nums;
 }
 .kpi small {
@@ -452,7 +465,7 @@ td {
     padding: 0 15px;
   }
   .kpis {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
   .charts {
     grid-template-columns: 1fr 1fr;
@@ -524,6 +537,14 @@ td {
   }
   .content {
     padding: 22px 15px;
+  }
+  .crumb {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .crumb span:first-child,
+  .crumb svg {
+    display: none;
   }
   .page-heading {
     gap: 10px;
@@ -598,6 +619,7 @@ td {
     flex-direction: column;
   }
   .kpis {
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
   .panel-heading {
@@ -790,19 +812,36 @@ body:has(dialog[open]) {
   align-items: center;
   align-content: center;
   padding: clamp(24px, 6.5vw, 110px);
+  overflow-x: hidden;
   background:
     linear-gradient(
       105deg,
-      rgba(9, 21, 39, 0.57),
-      rgba(9, 21, 39, 0.15) 55%,
-      rgba(9, 21, 39, 0.51)
+      rgba(8, 16, 30, 0.84) 0%,
+      rgba(8, 16, 30, 0.62) 46%,
+      rgba(8, 16, 30, 0.28) 100%
     ),
     url("../assets/hero-solar.jpg") center / cover;
-  color: #fafcff;
+  color: #ffffff;
 }
 .login-hero-copy {
+  position: relative;
+  z-index: 1;
   max-width: 650px;
-  text-shadow: 0 2px 18px #091e37a8;
+  text-shadow: 0 2px 16px rgba(7, 17, 28, 0.85);
+}
+.login-hero-copy::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -28px -36px;
+  border-radius: 28px;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(13, 22, 38, 0.62),
+    rgba(13, 22, 38, 0.34) 72%,
+    rgba(13, 22, 38, 0.08)
+  );
 }
 .login-hero-copy h1 {
   font-size: clamp(2.75rem, 5.4vw, 6rem);
@@ -810,10 +849,10 @@ body:has(dialog[open]) {
   line-height: 1.04;
   letter-spacing: -0.055em;
   margin: 0;
-  color: #fff;
+  color: #ffffff;
 }
 .login-hero-copy h1 em {
-  color: #ffdb94;
+  color: #ffffff;
   font-style: normal;
 }
 .login-hero-copy p {
@@ -861,6 +900,29 @@ body:has(dialog[open]) {
   margin: 0;
   font-size: 0.95rem;
   line-height: 1.55;
+}
+.login-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 22px;
+  padding: 4px;
+  border-radius: 12px;
+  background: #132433;
+  border: 1px solid #3d5368;
+}
+.login-switch button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #d5e0ec;
+  font-weight: 650;
+  cursor: pointer;
+}
+.login-switch button.active {
+  background: #ffcb72;
+  color: #241b0e;
 }
 .login-panel form {
   margin-top: 26px;
@@ -1029,7 +1091,94 @@ body:has(dialog[open]) {
   flex-wrap: wrap;
 }
 .search-box {
+  flex: 1 1 160px;
+  min-width: 0;
   max-width: 100%;
+}
+.shell,
+.main-area,
+.content,
+.panel,
+.filters,
+.top-header {
+  min-width: 0;
+}
+.field-hint,
+.margin-note,
+.cost-edit small,
+.serial-result {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.time-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 0 18px;
+}
+.cost-edit {
+  display: grid;
+  gap: 4px;
+  min-width: 112px;
+}
+.cost-input {
+  width: 112px;
+  max-width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  color: #e5edf8;
+  background: #152132;
+  border: 1px solid #394a5e;
+  border-radius: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.cost-missing,
+.margin-loss {
+  color: #ffb4a8;
+}
+.cost-zero {
+  color: #f5c57c;
+}
+.cost-set,
+.margin-gain {
+  color: #9be7b8;
+}
+.progress-cell {
+  min-width: 132px;
+}
+.progress span {
+  font-variant-numeric: tabular-nums;
+}
+.serial-lookup {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+.serial-lookup input,
+.form-grid input[type="file"] {
+  width: 100%;
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid #394a5e;
+  background: #152132;
+  color: #e5edf8;
+}
+.roof-preview {
+  display: block;
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 9px;
+  margin-top: 8px;
+}
+.signature-pad {
+  max-width: 100%;
+  touch-action: none;
 }
 .login-panel {
   backdrop-filter: blur(12px);
@@ -1040,3 +1189,593 @@ body:has(dialog[open]) {
 .brand > span svg {
   flex-shrink: 0;
 }
+
+/* ---- RBAC, locks, validation banners ---- */
+.view-only-pill,
+.lock-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  white-space: nowrap;
+}
+.view-only-pill {
+  padding: 6px 12px;
+  color: #c9d5e3;
+  background: rgba(137, 150, 176, 0.14);
+  border: 1px solid rgba(137, 150, 176, 0.35);
+}
+.lock-badge {
+  padding: 2px 8px;
+  color: #ffd79c;
+  background: rgba(247, 187, 103, 0.12);
+  border: 1px solid rgba(247, 187, 103, 0.4);
+  vertical-align: middle;
+}
+.form-grid label:has(.lock-badge) {
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+}
+.form-grid label:has(.lock-badge) > :is(input, select) {
+  grid-column: 1 / -1;
+}
+.form-grid :is(input, select):disabled {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+.form-error:not(:empty) {
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: rgba(255, 112, 92, 0.12);
+  border: 1px solid rgba(255, 140, 120, 0.45);
+}
+.dispatch-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.dispatch-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.dispatch-list code {
+  color: #e3eaf0;
+}
+
+/* ---- Sidebar profile ---- */
+.account-name {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.sidebar .account small.role-badge,
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  padding: 3px 9px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #0b1320;
+  background: var(--gold);
+}
+.role-admin,
+.sidebar .account small.role-admin { background: #f59e0b; color: #0b1320; }
+.role-tech,
+.sidebar .account small.role-tech { background: #49c5b6; color: #0b1320; }
+.role-sales,
+.sidebar .account small.role-sales { background: #60a5fa; color: #0b1320; }
+.role-inventory,
+.sidebar .account small.role-inventory { background: #a78bfa; color: #0b1320; }
+.role-customer,
+.sidebar .account small.role-customer { background: #34d399; color: #0b1320; }
+
+/* ---- Login demo pills ---- */
+.demo-pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.demo-pill {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 12px;
+  border: 1px solid #516579;
+  background: #22344a;
+  color: #eef4fa;
+  cursor: pointer;
+  min-width: 0;
+}
+.demo-pill strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.demo-pill span {
+  font-size: 11px;
+  color: #bccbd9;
+  overflow-wrap: anywhere;
+}
+.demo-pill:hover,
+.demo-pill[aria-pressed="true"] {
+  border-color: var(--gold);
+  background: #2c3e51;
+}
+@media (max-width: 420px) {
+  .demo-pills {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Quotation kit calculator ---- */
+.kit-calc {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 4px 0 8px;
+  background: rgba(11, 19, 32, 0.45);
+}
+.kit-head h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+}
+.kit-head small {
+  color: var(--muted);
+}
+.kit-calc .form-grid label:has(.kit-auto) {
+  grid-template-columns: 1fr auto;
+}
+.kit-calc .form-grid label:has(.kit-auto) > input {
+  grid-column: 1;
+}
+.kit-auto {
+  grid-column: 2;
+  grid-row: 2;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.kit-table {
+  width: 100%;
+  font-size: 13px;
+}
+.kit-table th,
+.kit-table td {
+  padding: 7px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.kit-table td:last-child,
+.kit-table th:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+.kit-summary {
+  margin: 12px 0 0;
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
+}
+.kit-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+}
+.kit-summary dt,
+.kit-summary dd {
+  margin: 0;
+}
+.kit-summary dd {
+  white-space: nowrap;
+  color: #e3eaf0;
+}
+.kit-summary .grand {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+  margin-top: 4px;
+  font-size: 17px;
+  font-weight: 650;
+  color: #ffffff;
+}
+.kit-summary .grand dd {
+  color: var(--gold);
+}
+.kit-summary .net dd {
+  color: #7fe3c4;
+  font-weight: 600;
+}
+.kit-warn {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: #ffd79c;
+}
+@media (max-width: 640px) {
+  .kit-calc .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.kit-calc .form-grid label:has(select) {
+  grid-column: 1 / -1;
+}
+.kit-table td:first-child > * {
+  display: block;
+}
+.kit-table th,
+.kit-table td {
+  padding-inline: 6px;
+}
+.kit-slot,
+.kit-note {
+  font-size: 11px;
+  color: var(--muted);
+}
+.kit-slot {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kit-table td:not(:first-child) {
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+/* ==========================================================================
+   Bijli Wala SIMS — Extended 5-Role UI Components & Invigilator Aesthetics
+   ========================================================================== */
+
+/* Login View Enhancements (Matching Frame 1) */
+.hero-line {
+  width: 100px;
+  height: 3px;
+  background: linear-gradient(90deg, #F59E0B, #49C5B6);
+  margin: 16px 0 20px;
+  border-radius: 2px;
+}
+.google-auth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  background: #cbd5e1;
+  color: #1e293b;
+  border: 0;
+  border-radius: 9px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.google-auth-btn:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+.password-label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 15px 0 7px;
+}
+.password-label-row label {
+  margin: 0 !important;
+}
+.forgot-link {
+  font-size: 12px;
+  color: #94a3b8;
+  text-decoration: none;
+}
+.forgot-link:hover {
+  color: #F59E0B;
+}
+.login-options-row {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.remember-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  margin: 0 !important;
+}
+.signup-prompt {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.text-link {
+  color: #F59E0B;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
+  font-size: inherit;
+}
+.text-link:hover {
+  color: #f7bb67;
+}
+.demo-pill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.demo-pill-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  word-break: break-all;
+}
+
+/* Stock Gate & Verification Badges (Quotations & Inventory) */
+.stock-gate-box {
+  margin: 16px 0;
+}
+.stock-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 15px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.stock-badge-ok {
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.35);
+  color: #34d399;
+}
+.stock-badge-warn {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+.verification-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: 13px;
+}
+.verification-table th,
+.verification-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.verification-summary {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 8px;
+}
+.summary-passed {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+.summary-failed {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+/* Customer Portal Quotation Cards */
+.quotation-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+.quotation-card {
+  background: #162438;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.quotation-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.quotation-card-top h3 {
+  font-size: 18px;
+  margin: 0;
+  color: #fff;
+}
+.quotation-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+.quotation-breakdown {
+  background: #0e1726;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+  font-size: 13px;
+}
+.q-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.quotation-card-footer {
+  margin-top: auto;
+  padding-top: 10px;
+}
+.accepted-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #34d399;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Serial Lookup & Service Billing (Warranty) */
+.serial-lookup-panel {
+  margin-bottom: 20px;
+}
+.serial-lookup-box {
+  max-width: 650px;
+}
+.serial-lookup-result {
+  margin-top: 14px;
+}
+.lookup-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 18px;
+  border-radius: 10px;
+  background: #18283e;
+  border: 1px solid var(--line);
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.lookup-card.covered {
+  border-color: #34d399;
+}
+.lookup-card.expired {
+  border-color: #f59e0b;
+}
+.lookup-card-left strong {
+  font-size: 15px;
+  color: #fff;
+}
+.lookup-card-left p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.warranty-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+.warranty-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+  background: #0f1929;
+  padding: 14px;
+  border-radius: 8px;
+}
+.meta-item span {
+  display: block;
+  font-size: 11px;
+  color: #8899ac;
+  text-transform: uppercase;
+}
+.meta-item strong,
+.meta-item code {
+  font-size: 14px;
+  color: #fff;
+}
+.warranty-billing-summary {
+  padding: 14px;
+  border-radius: 8px;
+  margin: 14px 0;
+  font-size: 13px;
+}
+.billing-covered {
+  background: rgba(52, 211, 153, 0.1);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  color: #34d399;
+}
+.billing-expired {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: #f59e0b;
+}
+.warranty-history-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 12px;
+}
+.warranty-history-list li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.hist-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #49c5b6;
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.hist-content strong {
+  display: block;
+  font-size: 13px;
+  color: #fff;
+}
+.hist-content small {
+  font-size: 11px;
+  color: #8899ac;
+}
+.hist-content p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: #cbd5e1;
+}
+
+/* Digital Signature Pad (Handover) */
+.signature-section {
+  margin: 16px 0;
+}
+.signature-pad {
+  background: #0f1929;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: crosshair;
+  touch-action: none;
+}
+.sig-tools {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+.sig-preview {
+  max-height: 80px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: #0f1929;
+}
+.stage-pill {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  background: #1e3046;
+  color: #49c5b6;
+  border: 1px solid #334860;
+}
+

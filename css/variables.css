@@ -53,6 +53,7 @@ table {
   --slate-deep: #0b1320;
   --slate-surface: #152033;
   --amber: #f59e0b;
+  --teal: #49c5b6;
   --space: 4px;
   background: var(--slate-deep);
   font-synthesis: none;
@@ -66,6 +67,7 @@ table {
 }
 body {
   margin: 0;
+  overflow-x: hidden;
 }
 button,
 a,

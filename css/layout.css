@@ -201,9 +201,9 @@ select,
   flex-shrink: 0;
 }
 .sidebar nav a {
-  color: #e8edf5;
+  color: #ffffff;
   position: relative;
-  text-shadow: 0 1px 4px #07111c;
+  text-shadow: 0 1px 2px #07111c;
 }
 .sidebar nav .selected {
   color: #ffda9b;
@@ -221,16 +221,32 @@ select,
   border-radius: 8px;
   transform: translateY(calc(var(--active-index) * (100% + 5px)));
 }
+.sidebar-footer {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .sidebar .account {
   flex-shrink: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(13, 22, 38, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(13, 22, 38, 0.88);
   backdrop-filter: blur(12px);
-  margin: auto 10px 12px;
+  margin: 0 10px 0;
   border-radius: 24px;
   padding: 10px;
   gap: 7px;
+  color: #ffffff;
 }
-.account small {
-  color: #d1ddea;
+.sidebar .account small,
+.sidebar .nav-label,
+.sidebar .brand small {
+  color: #ffffff;
+}
+.reset-demo {
+  margin: 0 10px 12px;
+  width: calc(100% - 20px);
+  min-height: 36px;
+  font-size: 13px;
 }
