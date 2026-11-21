@@ -3,7 +3,16 @@
  * Standard ES6+ vanilla helper functions
  */
 window.BW = window.BW || {};
-const BW = window.BW;
+
+// A cross-page view transition is aborted (harmlessly) when the user navigates
+// again before it finishes; swallow that rejection so it isn't a console error.
+for (const type of ["pageswap", "pagereveal"]) {
+  window.addEventListener(type, (e) => {
+    e.viewTransition?.ready?.catch(() => {});
+    e.viewTransition?.finished?.catch(() => {});
+    e.viewTransition?.updateCallbackDone?.catch(() => {});
+  });
+}
 
 (() => {
   "use strict";
@@ -31,6 +40,53 @@ const BW = window.BW;
 
   function todayISO() {
     return dateString(new Date());
+  }
+
+  // Today's LOCAL date as YYYY-MM-DD (never toISOString, which shifts by the UTC offset).
+  function getTodayISO() {
+    return dateString(new Date());
+  }
+
+  /** Returns an error message, or "" when dateStr is today or later. */
+  function validateFutureOrTodayDate(dateStr, fieldLabel) {
+    if (!dateStr) return `${fieldLabel} is required.`;
+    if (dateStr < getTodayISO())
+      return `${fieldLabel} cannot be in the past. Please select today or a future date.`;
+    return "";
+  }
+
+  /** Returns an error message, or "" when end is not earlier than start (dates or HH:MM times). */
+  function validateDateRange(start, end) {
+    if (start && end && end < start) return "End date cannot be earlier than start date.";
+    return "";
+  }
+
+  /**
+   * Wires a forward-looking date input: min=today, red border + role="alert"
+   * message on a past pick. An existing record's unchanged past date (historical
+   * data) stays valid; only a newly chosen date must be today or later.
+   * Returns check() -> error message or "".
+   */
+  function guardFutureDate(input, alertEl, fieldLabel, originalValue = "") {
+    input.min = getTodayISO();
+    const check = () => {
+      const v = input.value;
+      const msg = v && v === originalValue ? "" : validateFutureOrTodayDate(v, fieldLabel);
+      input.classList.toggle("field-invalid", !!msg);
+      input.setAttribute("aria-invalid", msg ? "true" : "false");
+      if (msg) {
+        alertEl.textContent = msg;
+        alertEl.hidden = false;
+      } else if (alertEl.dataset.dateError === "1") {
+        alertEl.textContent = "";
+        alertEl.hidden = true;
+      }
+      alertEl.dataset.dateError = msg ? "1" : "";
+      return msg;
+    };
+    input.addEventListener("input", check);
+    input.addEventListener("change", check);
+    return check;
   }
 
   function relativeDate(days) {
@@ -119,6 +175,10 @@ const BW = window.BW;
     deepClone,
     dateString,
     todayISO,
+    getTodayISO,
+    validateFutureOrTodayDate,
+    validateDateRange,
+    guardFutureDate,
     relativeDate,
     formatDate,
     formatINR,

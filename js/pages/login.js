@@ -128,7 +128,7 @@
     try {
       const user = BW.auth.signupCustomer({ name, email, phone, city, password });
       if (user) {
-        location.assign(`pages/${user.defaultLanding || "customer-portal.html"}`);
+        location.assign(`pages/${user.defaultLanding || "customer-overview.html"}`);
       }
     } catch (err) {
       signupError.hidden = false;

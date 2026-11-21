@@ -156,6 +156,15 @@ window.BW.controllers = window.BW.controllers || {};
       e.preventDefault();
       alertEl.hidden = true;
 
+      const rangeError = BW.utils.validateDateRange(startTimeField.value, endTimeField.value);
+      endTimeField.classList.toggle("field-invalid", !!rangeError);
+      if (rangeError) {
+        alertEl.textContent = "Testing completion time cannot be earlier than the start time.";
+        alertEl.hidden = false;
+        endTimeField.focus();
+        return;
+      }
+
       if (!hasInk && !project.handover?.signature) {
         useTypedSignature();
       }
@@ -278,7 +287,7 @@ window.BW.controllers = window.BW.controllers || {};
     progressEl.max = STAGES.length;
     progressEl.value = currentStageIndex + 1;
 
-    const stepperList = BW.ui.el("ol", "stepper");
+    const stepperList = BW.ui.el("ol", "stepper lifecycle-stages");
 
     function renderStepper() {
       stepperList.replaceChildren();
@@ -288,6 +297,9 @@ window.BW.controllers = window.BW.controllers || {};
           if (!canWrite) return;
           currentStageIndex = i;
           progressEl.value = i + 1;
+          if (statusField.value !== "On hold") {
+            statusField.value = i === STAGES.length - 1 ? "Completed" : i === 0 ? "Planning" : "In progress";
+          }
           renderStepper();
         });
         if (i <= currentStageIndex) li.classList.add("done");
@@ -363,10 +375,9 @@ window.BW.controllers = window.BW.controllers || {};
 
       try {
         const chosenStage = STAGES[currentStageIndex];
-        let derivedStatus = statusField.value;
-        if (chosenStage === "Commissioning") derivedStatus = "Completed";
-        else if (chosenStage === "Planning") derivedStatus = "Planning";
-        else derivedStatus = "In progress";
+        // Stage and status are independent: save exactly what was selected.
+        const chosenStatus = statusField.value;
+        const previousStatus = project?.status;
 
         const record = {
           ...(project || {}),
@@ -376,10 +387,12 @@ window.BW.controllers = window.BW.controllers || {};
           "Lead engineer": engineerField.value,
           "Crew lead": crewField.value,
           stage: chosenStage,
-          status: derivedStatus,
+          status: chosenStatus,
+          ...(chosenStatus === "On hold" ? {} : { holdReason: null, heldBy: null }),
         };
 
-        BW.store.save("Projects", record);
+        const savedProject = BW.store.save("Projects", record);
+        BW.store.syncProjectHold(savedProject, previousStatus);
         dialog.close();
         BW.ui.toast(isNew ? "Project created" : "Project updated");
         onSaved();

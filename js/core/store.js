@@ -3,12 +3,22 @@
  * Manages collections, schema validation, immutable transactions, serial dispatching, and demo reset.
  */
 window.BW = window.BW || {};
-const BW = window.BW;
 
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "bijli-wala.sims.v3";
+  const STORAGE_KEY = "bijli-wala.sims.v5";
+
+  // Drop data left behind by older storage versions so it never piles up.
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith("bijli-wala.") && k !== STORAGE_KEY && !k.startsWith("bijli-wala.session")) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch (e) {
+    // Storage unavailable (private mode): nothing to clean.
+  }
 
   const SCHEMAS = {
     Users: {
@@ -37,7 +47,7 @@ const BW = window.BW;
       single: "quotation",
       fields: ["Customer", "City", "Capacity (kW)", "Amount (₹)"],
       extra: ["System type", "Subsidy scheme"],
-      statuses: ["Draft", "Sent", "Accepted"],
+      statuses: ["Draft", "Sent", "Accepted", "Revision Required", "Rejected", "On Hold", "Cancelled"],
       description: "Selective solar kit configurations and customer price proposals.",
     },
     Inventory: {
@@ -266,7 +276,7 @@ const BW = window.BW;
         "Capacity (kW)": 3,
         "System type": "On-Grid",
         "Subsidy scheme": "PM Surya Ghar Subsidy",
-        "Amount (₹)": 165000,
+        "Amount (₹)": 161840,
         status: "Accepted",
         sourceSurveyId: "SRV-1001",
         created: rel(-12),
@@ -277,11 +287,16 @@ const BW = window.BW;
           installRatePerKw: 4500,
         },
         totals: {
+          // ₹1,31,000 equipment + ₹13,500 installation (3 kW × ₹4,500)
+          // = ₹1,44,500 taxable; 12% composite GST = ₹17,340;
+          // gross ₹1,61,840 − ₹78,000 PM Surya Ghar subsidy = ₹83,840 net.
           equipmentSubtotal: 131000,
           installationSubtotal: 13500,
-          grossTotal: 165000,
+          gst: 17340,
+          gstRate: 12,
+          grossTotal: 161840,
           subsidy: 78000,
-          netCustomerPayable: 87000,
+          netCustomerPayable: 83840,
         },
       },
       {
@@ -350,7 +365,7 @@ const BW = window.BW;
         status: "In progress",
         materialsCost: 84000,
         labourCost: 12000,
-        revenue: 165000,
+        revenue: 161840,
         sourceQuotationId: "QTN-1001",
         created: rel(-10),
       },
@@ -420,8 +435,8 @@ const BW = window.BW;
         Component: "Waaree 540W Mono PERC panel",
         "Serial number": "WAA-540-8801",
         coverageStart: rel(-45),
-        "Expiry date": BW.utils.relativeDate(365 * 25 - 45),
-        coverageYears: 25,
+        "Expiry date": BW.utils.relativeDate(365 * 20 - 45),
+        coverageYears: 20,
         sourceId: "INV-1001",
         projectId: "PRJ-1001",
         status: "Active",
@@ -429,7 +444,7 @@ const BW = window.BW;
           {
             date: rel(-45),
             title: "Warranty registered",
-            detail: "Waaree 540W Mono PERC · 25-yr performance guarantee",
+            detail: "Waaree 540W Mono PERC · 20-year panel warranty",
           },
         ],
         tickets: [],
@@ -441,8 +456,8 @@ const BW = window.BW;
         Component: "Growatt 3kW On-Grid inverter",
         "Serial number": "GW-3K-7711",
         coverageStart: rel(-45),
-        "Expiry date": BW.utils.relativeDate(365 * 5 - 45),
-        coverageYears: 5,
+        "Expiry date": BW.utils.relativeDate(365 * 2 - 45),
+        coverageYears: 2,
         sourceId: "INV-1003",
         projectId: "PRJ-1001",
         status: "Active",
@@ -450,7 +465,7 @@ const BW = window.BW;
           {
             date: rel(-45),
             title: "Warranty registered",
-            detail: "Growatt 3kW On-Grid inverter · 5-yr warranty",
+            detail: "Growatt 3kW On-Grid inverter · 2-year inverter warranty",
           },
         ],
         tickets: [],
@@ -488,8 +503,8 @@ const BW = window.BW;
         Component: "Sungrow 10kW On-Grid inverter",
         "Serial number": "SG-10K-9902",
         coverageStart: rel(-30),
-        "Expiry date": BW.utils.relativeDate(365 * 5 - 30),
-        coverageYears: 5,
+        "Expiry date": BW.utils.relativeDate(365 * 2 - 30),
+        coverageYears: 2,
         status: "Claim open",
         history: [
           {
@@ -518,7 +533,7 @@ const BW = window.BW;
     return {
       Users: BW.auth.defaultUsers,
       Surveys: surveysSeed,
-      Quotations: quotationsSeed,
+      Quotations: quotationsSeed.map(withCalculatedTotals),
       Inventory: inventorySeed,
       Projects: projectsSeed,
       Warranty: warrantySeed,
@@ -577,7 +592,7 @@ const BW = window.BW;
 
   function lockedFields(module, record) {
     if (!record || !record.id) return [];
-    if (module === "Quotations" && record.status === "Accepted") {
+    if (module === "Quotations" && (record.status === "Accepted" || record.prevStatus === "Accepted")) {
       return [
         "Customer",
         "City",
@@ -614,6 +629,14 @@ const BW = window.BW;
           throw new Error("Capacity must be greater than 0 kW.");
         }
       }
+    }
+
+    // Forward-looking dates must be today or later when newly set or changed.
+    const FUTURE_DATES = { Surveys: ["Survey date"] };
+    for (const f of FUTURE_DATES[module] || []) {
+      if (previous && previous[f] === record[f]) continue;
+      const msg = BW.utils.validateFutureOrTodayDate(record[f], f.replace(/^./, (c) => c.toUpperCase()));
+      if (msg) throw new Error(msg);
     }
 
     if (record.Phone && !BW.utils.phoneOk(record.Phone)) {
@@ -654,6 +677,64 @@ const BW = window.BW;
     return record;
   }
 
+  /* ---------- Quotation stock gate ---------- */
+  // A fingerprint of everything Inventory must re-check if it changes.
+  function kitKey(q) {
+    const k = q.kit || {};
+    return JSON.stringify([
+      Number(q["Capacity (kW)"]) || 0,
+      q["System type"] || "On-Grid",
+      k.panelId || "",
+      Number(k.panelQty) || 0,
+      k.inverterId || "",
+      q["System type"] === "Off-Grid" ? k.batteryId || "" : "",
+      k.mountingId || "",
+    ]);
+  }
+
+  // Seed quotations: totals always derived from the kit calculator so the
+  // stored amounts match what the builder and customer pages compute.
+  function withCalculatedTotals(q) {
+    const calc = BW.catalog.calculateKit({
+      capacityKw: q["Capacity (kW)"],
+      systemType: q["System type"],
+      subsidyScheme: q["Subsidy scheme"],
+      ...q.kit,
+    });
+    const confirmed = ["Sent", "Accepted"].includes(q.status);
+    return {
+      ...q,
+      "Amount (₹)": calc.grossTotal,
+      kit: { ...q.kit, panelQty: calc.finalPanelQty },
+      totals: {
+        equipmentSubtotal: calc.equipmentSubtotal,
+        installationSubtotal: calc.installationSubtotal,
+        gst: Math.round(calc.totalGst),
+        gstRate: 12,
+        grossTotal: calc.grossTotal,
+        subsidy: calc.subsidy,
+        netCustomerPayable: calc.netCustomerPayable,
+      },
+      stockStatus: confirmed ? "Confirmed" : "Pending",
+      ...(confirmed ? { stockKitKey: kitKey({ ...q, kit: { ...q.kit, panelQty: calc.finalPanelQty } }), stockConfirmedBy: "Imran Khan" } : {}),
+    };
+  }
+
+  /** Inventory / Admin confirms warehouse stock for a quotation's exact kit. */
+  function confirmStock(quoteId) {
+    const role = BW.auth?.current()?.role;
+    if (!["inventory", "admin"].includes(role)) throw new Error("Only Inventory or Admin can confirm stock.");
+    const q = get("Quotations").find((x) => x.id === quoteId);
+    if (!q) throw new Error(`Quotation ${quoteId} not found.`);
+    return save("Quotations", {
+      ...q,
+      stockStatus: "Confirmed",
+      stockKitKey: kitKey(q),
+      stockConfirmedBy: BW.auth.current().name,
+      stockConfirmedOn: BW.utils.getTodayISO(),
+    }, { system: true });
+  }
+
   function save(module, record, options = {}) {
     const schema = SCHEMAS[module];
     if (!schema) throw new Error(`Unknown module: ${module}`);
@@ -666,6 +747,24 @@ const BW = window.BW;
 
     const finalRecord = { ...BW.utils.deepClone(prev || {}), ...incoming };
 
+    if (module === "Quotations" && !options.system) {
+      const key = kitKey(finalRecord);
+      if (!prev) finalRecord.stockStatus = "Pending";
+      else if (prev.stockStatus === "Confirmed" && prev.stockKitKey !== key) {
+        // Equipment changed after Inventory confirmed it: must be re-checked,
+        // and an un-accepted quote can no longer be "Sent" on stale stock.
+        finalRecord.stockStatus = "Re-verification Required";
+        if (finalRecord.status === "Sent") finalRecord.status = "Draft";
+      }
+      const goingOut = ["Sent", "Accepted"].includes(finalRecord.status) && finalRecord.status !== prev?.status;
+      if (goingOut && finalRecord.stockStatus !== "Confirmed") {
+        throw new Error(
+          finalRecord.stockStatus === "Re-verification Required"
+            ? "Equipment changed after stock confirmation. Inventory must re-verify stock before this quotation can be sent."
+            : "Inventory has not confirmed stock yet. A quotation can only be sent after stock confirmation.",
+        );
+      }
+    }
     if (!options.system) {
       validate(module, finalRecord, prev);
     }
@@ -766,7 +865,12 @@ const BW = window.BW;
         Component: item["Item name"],
         "Serial number": code,
         coverageStart: BW.utils.todayISO(),
-        "Expiry date": BW.utils.relativeDate(365 * years),
+        // Whole calendar years (365 × n days drifts by a day per leap year).
+        "Expiry date": (() => {
+          const d = new Date();
+          d.setFullYear(d.getFullYear() + years);
+          return BW.utils.dateString(d);
+        })(),
         coverageYears: years,
         sourceId: item.id,
         projectId,
@@ -797,8 +901,112 @@ const BW = window.BW;
   }
 
   BW.schemas = SCHEMAS;
+  /**
+   * Rejects a survey and puts every not-yet-accepted quotation built from it
+   * (and any project created from those quotations) on hold, so no stale
+   * "approved" state survives anywhere the customer can see it.
+   */
+  function rejectSurvey(surveyId, reason) {
+    const text = String(reason || "").trim();
+    if (!text) throw new Error("A rejection reason is required.");
+    const survey = get("Surveys").find((s) => s.id === surveyId);
+    if (!survey) throw new Error(`Survey ${surveyId} not found.`);
+    const today = BW.utils.getTodayISO();
+    const saved = save("Surveys", {
+      ...survey,
+      status: "Rejected",
+      rejectionReason: text,
+      rejectedOn: today,
+    }, { system: true });
+
+    const held = [];
+    for (const q of get("Quotations")) {
+      if (q.sourceSurveyId !== surveyId || q.status === "Accepted") continue;
+      save("Quotations", { ...q, status: "On Hold", holdReason: `Survey rejected: ${text}` }, { system: true });
+      held.push(q.id);
+    }
+    for (const p of get("Projects")) {
+      if (!held.includes(p.sourceQuotationId) || p.status === "Completed") continue;
+      save("Projects", { ...p, status: "On hold", holdReason: `Survey ${surveyId} rejected` }, { system: true });
+    }
+    return { survey: saved, heldQuotations: held };
+  }
+
+  /**
+   * Admin / Sales: put a quotation On Hold, cancel it, or resume a held one.
+   * Status is the only thing that changes; prices stay locked. Linked projects
+   * follow: held/cancelled quote -> project "On hold"; resume -> previous status.
+   */
+  function setQuotationHold(quoteId, action, reason = "") {
+    const role = BW.auth?.current()?.role;
+    if (!["admin", "sales"].includes(role)) throw new Error("Only Admin or Sales can change a quotation's hold status.");
+    const quote = get("Quotations").find((q) => q.id === quoteId);
+    if (!quote) throw new Error(`Quotation ${quoteId} not found.`);
+    const linked = get("Projects").filter((p) => p.sourceQuotationId === quoteId);
+
+    if (action === "resume") {
+      if (quote.status !== "On Hold") throw new Error("Only an On Hold quotation can be resumed.");
+      const restored = save("Quotations", {
+        ...quote, status: quote.prevStatus || "Sent", holdReason: null, heldBy: null,
+      }, { system: true });
+      for (const p of linked) {
+        if (p.status === "On hold" && p.heldBy === "quotation")
+          save("Projects", { ...p, status: p.prevStatus || "Planning", holdReason: null, heldBy: null, prevStatus: null }, { system: true });
+      }
+      return restored;
+    }
+
+    if (!["On Hold", "Cancelled"].includes(action)) throw new Error(`Unknown action ${action}.`);
+    if (quote.status === "Cancelled") throw new Error("This quotation is already cancelled.");
+    const text = String(reason || "").trim();
+    if (!text) throw new Error("A reason is required.");
+    const saved = save("Quotations", {
+      ...quote,
+      status: action,
+      // Keep the status it had before the first hold so a resume restores it.
+      prevStatus: quote.status === "On Hold" ? quote.prevStatus : quote.status,
+      holdReason: text,
+      heldBy: "quotation",
+    }, { system: true });
+    for (const p of linked) {
+      if (p.status === "Completed") continue;
+      save("Projects", {
+        ...p,
+        status: "On hold",
+        prevStatus: p.status === "On hold" ? p.prevStatus : p.status,
+        holdReason: `Quotation ${quoteId} ${action === "Cancelled" ? "cancelled" : "on hold"}: ${text}`,
+        heldBy: "quotation",
+      }, { system: true });
+    }
+    return saved;
+  }
+
+  /**
+   * Called after a project save: a project put On hold puts its accepted
+   * quotation On Hold too (customer sees it), and taking the project off hold
+   * restores a quotation that was held only because of the project.
+   */
+  function syncProjectHold(project, previousStatus) {
+    if (!project?.sourceQuotationId || previousStatus === project.status) return;
+    const quote = get("Quotations").find((q) => q.id === project.sourceQuotationId);
+    if (!quote) return;
+    if (project.status === "On hold" && quote.status === "Accepted") {
+      save("Quotations", {
+        ...quote, status: "On Hold", prevStatus: "Accepted",
+        holdReason: `Project ${project.id} is on hold`, heldBy: "project",
+      }, { system: true });
+    } else if (previousStatus === "On hold" && quote.status === "On Hold" && quote.heldBy === "project") {
+      save("Quotations", { ...quote, status: quote.prevStatus || "Accepted", holdReason: null, heldBy: null }, { system: true });
+    }
+  }
+
   BW.store = {
     schemas: SCHEMAS,
+    rejectSurvey,
+    confirmStock,
+    kitKey,
+    setQuotationHold,
+    syncProjectHold,
     getAll,
     get,
     save,

@@ -21,6 +21,9 @@ window.BW.controllers = window.BW.controllers || {};
     );
 
     const form = BW.ui.el("form");
+    // Checks run in onsubmit so errors show in the inline alert, and an unchanged
+    // historical date is not rejected by the native min attribute.
+    form.noValidate = true;
     const grid = BW.ui.el("div", "form-grid");
     const alertEl = BW.ui.el("p", "form-error");
     alertEl.setAttribute("role", "alert");
@@ -119,10 +122,13 @@ window.BW.controllers = window.BW.controllers || {};
       name: "Survey date",
       label: "Survey Date",
       type: "date",
-      value: survey?.["Survey date"] || BW.utils.todayISO(),
+      value: survey?.["Survey date"] || BW.utils.getTodayISO(),
       required: true,
       readOnly: !canWrite,
     });
+    const checkSurveyDate = canWrite
+      ? BW.utils.guardFutureDate(dateField, alertEl, "Survey date", survey?.["Survey date"] || "")
+      : () => "";
 
     const statusField = BW.ui.field(grid, {
       name: "status",
@@ -208,20 +214,24 @@ window.BW.controllers = window.BW.controllers || {};
       if (survey.status !== "Rejected") {
         const rejectBtn = BW.ui.button(
           "Reject Survey",
-          () => {
-            const reason = prompt("Enter technical reason for survey rejection (e.g. heavy shadow, weak roof):");
-            if (reason === null) return;
-            if (!reason.trim()) {
-              alert("Rejection reason cannot be blank.");
-              return;
-            }
-            BW.store.save("Surveys", {
-              ...survey,
-              status: "Rejected",
-              rejectionReason: reason.trim(),
+          async () => {
+            const reason = await BW.ui.reasonModal({
+              title: `Reject survey ${survey.id}`,
+              message: "The customer will see this reason and be asked to resubmit.",
+              label: "Technical reason for rejection",
+              placeholder: "e.g. heavy shadow from water tank, weak roof structure…",
+              confirmLabel: "Reject Survey",
+              danger: true,
             });
+            if (reason === null) return;
+            const { heldQuotations } = BW.store.rejectSurvey(survey.id, reason);
             dialog.close();
-            BW.ui.toast("Survey marked as Rejected.", "error");
+            BW.ui.toast(
+              heldQuotations.length
+                ? `Survey rejected. ${heldQuotations.join(", ")} put on hold.`
+                : "Survey marked as Rejected.",
+              "error",
+            );
             onSaved();
           },
           "secondary-btn",
@@ -250,6 +260,12 @@ window.BW.controllers = window.BW.controllers || {};
     form.onsubmit = (e) => {
       e.preventDefault();
       alertEl.hidden = true;
+
+      const dateError = checkSurveyDate();
+      if (dateError) {
+        dateField.focus();
+        return;
+      }
 
       const tilt = Number(tiltField.value);
       if (Number.isNaN(tilt) || tilt < 0 || tilt > 90) {

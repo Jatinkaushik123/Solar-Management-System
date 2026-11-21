@@ -59,7 +59,11 @@ window.BW.controllers = window.BW.controllers || {};
   function openQuotationBuilder(quote = null, onSaved, prefillSurvey = null) {
     const isNew = !quote || !quote.id;
     const canWrite = BW.auth.canWrite("Quotations");
-    const isAccepted = quote?.status === "Accepted";
+    // Accepted quotes, and held/cancelled quotes that were accepted, keep
+    // their prices and line items locked; only the hold status can change.
+    const isAccepted = quote?.status === "Accepted" || quote?.prevStatus === "Accepted";
+    const role = BW.auth.current()?.role;
+    const canHold = !!quote?.id && ["admin", "sales"].includes(role);
 
     const { dialog, body } = BW.ui.modal(
       isNew ? "New Solar Quotation Builder" : `Quotation Details · ${quote.id}`,
@@ -77,7 +81,9 @@ window.BW.controllers = window.BW.controllers || {};
         "p",
         "form-caption",
         isAccepted
-          ? "This quotation is Accepted & Locked. Parameters cannot be altered."
+          ? quote.status === "Accepted"
+            ? "This quotation is Accepted & Locked. Parameters cannot be altered."
+            : `This quotation is ${quote.status}${quote.holdReason ? ` (${quote.holdReason})` : ""}. Prices stay locked.`
           : "Configure selective solar kits, adjust installation rates, and verify stock availability.",
       ),
       grid,
@@ -131,7 +137,9 @@ window.BW.controllers = window.BW.controllers || {};
     const statusField = BW.ui.field(grid, {
       name: "status",
       label: "Quotation Status",
-      options: ["Draft", "Sent", "Accepted"],
+      options: ["Draft", "Sent", "Accepted", "Revision Required", "Rejected"].concat(
+        ["On Hold", "Cancelled"].includes(quote?.status) ? [quote.status] : [],
+      ),
       value: quote?.status || "Draft",
       required: true,
       disabled: isAccepted || !canWrite,
@@ -259,6 +267,37 @@ window.BW.controllers = window.BW.controllers || {};
       const stockCheck = checkStockAvailability(calc);
       stockGateBox.replaceChildren();
 
+      // Inventory confirmation state for this exact kit
+      const draftKey = BW.store.kitKey({
+        "Capacity (kW)": kw,
+        "System type": systemField.value,
+        kit: {
+          panelId: panelSelect.value,
+          panelQty: calc.finalPanelQty,
+          inverterId: inverterSelect.value,
+          batteryId: batterySelect.value,
+          mountingId: mountingSelect.value,
+        },
+      });
+      const confirmedKit = quote?.stockStatus === "Confirmed" && quote.stockKitKey === draftKey;
+      const stockState = !quote?.id
+        ? "Pending"
+        : confirmedKit
+          ? "Confirmed"
+          : quote.stockStatus === "Confirmed"
+            ? "Re-verification Required"
+            : quote.stockStatus || "Pending";
+      const gate = BW.ui.el("div", `stock-badge ${stockState === "Confirmed" ? "stock-badge-ok" : "stock-badge-warn"}`);
+      gate.append(
+        BW.ui.icon(stockState === "Confirmed" ? "lock-keyhole" : "alert-triangle"),
+        stockState === "Confirmed"
+          ? ` Inventory confirmed stock${quote.stockConfirmedBy ? ` (${quote.stockConfirmedBy})` : ""}. Ready to send.`
+          : stockState === "Re-verification Required"
+            ? " Re-verification Required: equipment changed since Inventory confirmed stock. Saving keeps this as Draft until re-confirmed."
+            : " Awaiting Inventory stock confirmation. Save as Draft; it can be Sent once Inventory confirms.",
+      );
+      stockGateBox.append(gate);
+
       if (stockCheck.ok) {
         const okBadge = BW.ui.el("div", "stock-badge stock-badge-ok");
         okBadge.append(BW.ui.icon("circle-check"), " Stock Check Gate: All equipment in stock in warehouse.");
@@ -287,7 +326,7 @@ window.BW.controllers = window.BW.controllers || {};
             <strong>${BW.utils.formatINR(calc.installationSubtotal)}</strong>
           </div>
           <div class="kit-total-row">
-            <span>GST (5% Goods + 18% Services):</span>
+            <span>GST (12% composite):</span>
             <strong>${BW.utils.formatINR(calc.totalGst)}</strong>
           </div>
           <div class="kit-total-row kit-gross-row">
@@ -334,11 +373,66 @@ window.BW.controllers = window.BW.controllers || {};
       saveBtn.type = "submit";
       actions.append(saveBtn);
     } else if (isAccepted) {
-      actions.prepend(BW.ui.lockBadge(), " Accepted Quotations are Immutable");
+      actions.prepend(BW.ui.lockBadge(), " Prices are locked");
     }
 
     form.append(actions);
     body.append(form);
+
+    // Admin / Sales: Cancel / Put On Hold (status only; prices stay locked)
+    if (canHold && quote.status !== "Cancelled") {
+      const holdRow = BW.ui.el("div", "workflow");
+      holdRow.append(BW.ui.el("small", "", "Cancel / Put On Hold:"));
+      const run = async (action, verb) => {
+        const reason =
+          action === "resume"
+            ? ""
+            : await BW.ui.reasonModal({
+                title: action === "Cancelled" ? `Cancel quotation ${quote.id}` : `Put ${quote.id} on hold`,
+                message: "This reason is shown to the customer on their My Quotations page.",
+                label: `Reason to ${verb}`,
+                placeholder: action === "Cancelled" ? "e.g. customer withdrew, relocating…" : "e.g. awaiting DISCOM approval…",
+                confirmLabel: action === "Cancelled" ? "Cancel Quotation" : "Put On Hold",
+                danger: action === "Cancelled",
+              });
+        if (reason === null) return;
+        try {
+          BW.store.setQuotationHold(quote.id, action, reason);
+          dialog.close();
+          BW.ui.toast(
+            action === "resume" ? `${quote.id} resumed` : `${quote.id} ${action === "Cancelled" ? "cancelled" : "put on hold"}`,
+            action === "Cancelled" ? "error" : "success",
+          );
+          onSaved();
+        } catch (err) {
+          alertEl.textContent = err.message;
+          alertEl.hidden = false;
+        }
+      };
+      if (quote.status === "On Hold") {
+        // Block a contradictory resume while the linked project is still on hold.
+        const heldProject = BW.store
+          .get("Projects")
+          .find((p) => p.sourceQuotationId === quote.id && p.status === "On hold" && p.heldBy !== "quotation");
+        const resumeBtn = BW.ui.button("Resume Quotation", () => run("resume"), "primary-btn", "check");
+        if (heldProject) {
+          resumeBtn.disabled = true;
+          resumeBtn.title = "Take the project off hold first";
+          const note = BW.ui.el(
+            "p",
+            "hold-note",
+            `Project ${heldProject.id} is currently On Hold. Take the project off hold first to resume this quotation.`,
+          );
+          note.setAttribute("role", "status");
+          holdRow.append(resumeBtn, note);
+        } else {
+          holdRow.append(resumeBtn);
+        }
+      }
+      else holdRow.append(BW.ui.button("Put On Hold", () => run("On Hold", "put on hold"), "secondary-btn", "alert-triangle"));
+      holdRow.append(BW.ui.button("Cancel Quotation", () => run("Cancelled", "cancel"), "secondary-btn danger-btn", "x"));
+      body.append(holdRow);
+    }
 
     // Sales Workflow: Advance to Project if Accepted
     if (!isNew && quote.status === "Accepted") {
@@ -575,6 +669,7 @@ window.BW.controllers = window.BW.controllers || {};
             const wrap = BW.ui.el("span", "status-cell-wrap");
             wrap.append(BW.ui.statusPill(st));
             if (st === "Accepted") wrap.append(" ", BW.ui.lockBadge());
+            if ((st === "On Hold" || st === "Cancelled") && r.holdReason) wrap.title = r.holdReason;
             return wrap;
           },
         },

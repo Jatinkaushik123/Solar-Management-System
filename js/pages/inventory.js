@@ -410,6 +410,62 @@ window.BW.controllers = window.BW.controllers || {};
     };
   }
 
+  /* Quotations waiting for Inventory to confirm warehouse stock. */
+  function stockQueuePanel() {
+    const canConfirm = ["inventory", "admin"].includes(BW.auth.current()?.role);
+    const queue = BW.store
+      .get("Quotations")
+      .filter((q) => !["Accepted", "Cancelled", "Rejected"].includes(q.status) && q.stockStatus !== "Confirmed");
+    const panel = BW.ui.el("section", "panel");
+    const head = BW.ui.el("div", "panel-heading");
+    head.append(
+      BW.ui.el("h2", "", "Stock Confirmation Queue"),
+      BW.ui.el("span", "muted", `${queue.length} quotation${queue.length === 1 ? "" : "s"} awaiting stock check`),
+    );
+    panel.append(head);
+    if (!queue.length) {
+      panel.append(BW.ui.el("p", "empty", "All open quotations have confirmed stock."));
+      return panel;
+    }
+    panel.append(
+      BW.ui.table({
+        module: "Quotations",
+        rows: queue,
+        columns: [
+          { key: "id", label: "Quotation" },
+          { key: "Customer", label: "Customer" },
+          { key: "Capacity (kW)", label: "Size", render: (v) => `${v} kW` },
+          {
+            key: "kit",
+            label: "Equipment",
+            render: (k, q) => {
+              const p = BW.catalog.getPanel(k?.panelId), i = BW.catalog.getInverter(k?.inverterId);
+              return `${k?.panelQty || "?"} × ${p?.name || "panel"} · ${i?.name || "inverter"}`;
+            },
+          },
+          {
+            key: "stockStatus",
+            label: "Stock Status",
+            render: (v) => BW.ui.statusPill(v || "Pending"),
+          },
+        ],
+        actionsRenderer: (q) =>
+          canConfirm
+            ? BW.ui.button("Confirm Stock", () => {
+                try {
+                  BW.store.confirmStock(q.id);
+                  BW.ui.toast(`Stock confirmed for ${q.id}`);
+                  render();
+                } catch (err) {
+                  BW.ui.toast(err.message, "error");
+                }
+              }, "primary-btn", "check")
+            : BW.ui.viewOnly(),
+      }),
+    );
+    return panel;
+  }
+
   function render() {
     const root = document.querySelector("#page-content");
     if (!root) return;
@@ -596,7 +652,7 @@ window.BW.controllers = window.BW.controllers || {};
     });
 
     panel.append(tableEl);
-    root.append(headingEl, kpiCards, panel);
+    root.append(headingEl, kpiCards, stockQueuePanel(), panel);
   }
 
   BW.controllers.Inventory = { render };

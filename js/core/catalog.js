@@ -3,7 +3,6 @@
  * Contains hardware catalogues, pricing standards, master dropdown choices, and subsidy logic.
  */
 window.BW = window.BW || {};
-const BW = window.BW;
 
 (() => {
   "use strict";
@@ -87,7 +86,7 @@ const BW = window.BW;
         name: "Waaree 540W Mono PERC",
         watt: 540,
         price: 14500,
-        warranty: "25-yr performance",
+        warranty: "20-yr panel warranty",
         brand: "Waaree",
       },
       {
@@ -95,7 +94,7 @@ const BW = window.BW;
         name: "Tata Power 550W Bifacial",
         watt: 550,
         price: 16200,
-        warranty: "30-yr performance",
+        warranty: "20-yr panel warranty",
         brand: "Tata Power",
       },
       {
@@ -103,7 +102,7 @@ const BW = window.BW;
         name: "Adani 535W TopCon",
         watt: 535,
         price: 15400,
-        warranty: "25-yr performance",
+        warranty: "20-yr panel warranty",
         brand: "Adani",
       },
     ],
@@ -114,7 +113,7 @@ const BW = window.BW;
         kw: 3,
         grid: "On-Grid",
         price: 32000,
-        warranty: "5-yr warranty",
+        warranty: "2-yr warranty",
         brand: "Growatt",
       },
       {
@@ -123,7 +122,7 @@ const BW = window.BW;
         kw: 5,
         grid: "On-Grid",
         price: 48500,
-        warranty: "5-yr warranty",
+        warranty: "2-yr warranty",
         brand: "Sungrow",
       },
       {
@@ -141,7 +140,7 @@ const BW = window.BW;
         kw: 10,
         grid: "On-Grid",
         price: 78000,
-        warranty: "5-yr warranty",
+        warranty: "2-yr warranty",
         brand: "Sungrow",
       },
     ],
@@ -150,7 +149,7 @@ const BW = window.BW;
         id: "luminous-150",
         name: "Luminous 150Ah Tall Tubular",
         price: 14800,
-        warranty: "3-yr warranty",
+        warranty: "2-yr warranty",
         perKw: 1,
         brand: "Luminous",
       },
@@ -158,7 +157,7 @@ const BW = window.BW;
         id: "exide-200",
         name: "Exide 200Ah Solar Battery",
         price: 18500,
-        warranty: "5-yr warranty",
+        warranty: "2-yr warranty",
         perKw: 1,
         brand: "Exide",
       },
@@ -166,7 +165,7 @@ const BW = window.BW;
         id: "okaya-5kwh",
         name: "Okaya 5kWh Lithium",
         price: 85000,
-        warranty: "5-yr warranty",
+        warranty: "2-yr warranty",
         perKw: 0.2,
         brand: "Okaya",
       },
@@ -188,9 +187,10 @@ const BW = window.BW;
       },
     ],
     defaultInstallRatePerKw: 4500,
+    // 12% composite GST on the full solar system (equipment + installation).
     gst: {
-      equipment: 5, // 5% GST on solar goods
-      installation: 18, // 18% GST on installation services
+      equipment: 12,
+      installation: 12,
     },
   };
 

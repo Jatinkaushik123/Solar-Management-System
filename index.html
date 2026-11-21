@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <style>html,body{background:#0B1320}</style>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b1320" />
     <title>Login | Bijli Wala — Solar Installation Management System</title>
@@ -115,46 +116,50 @@
 
         <!-- Customer Self Sign-Up Form (Hidden by default) -->
         <form id="signup-form" hidden>
-          <label for="signup-name">Full Name</label>
-          <div class="login-input">
-            <span data-icon="user"></span>
-            <input
+          <div class="signup-grid">
+            <div class="signup-field">
+              <label for="signup-name">Full Name</label>
+              <div class="login-input">
+              <span data-icon="user"></span>
+              <input
               id="signup-name"
               required
               type="text"
               autocomplete="name"
               placeholder="e.g. Ramesh Patel"
-            />
-          </div>
-
-          <label for="signup-email">Email Address</label>
-          <div class="login-input">
-            <span data-icon="mail"></span>
-            <input
+              />
+              </div>
+            </div>
+            <div class="signup-field">
+              <label for="signup-email">Email Address</label>
+              <div class="login-input">
+              <span data-icon="mail"></span>
+              <input
               id="signup-email"
               required
               type="email"
               autocomplete="email"
               placeholder="ramesh@gmail.com"
-            />
-          </div>
-
-          <label for="signup-phone">10-Digit Mobile (India)</label>
-          <div class="login-input">
-            <span data-icon="activity"></span>
-            <input
+              />
+              </div>
+            </div>
+            <div class="signup-field">
+              <label for="signup-phone">10-Digit Mobile (India)</label>
+              <div class="login-input">
+              <span data-icon="activity"></span>
+              <input
               id="signup-phone"
               required
               type="tel"
               pattern="[6-9][0-9]{9}"
               maxlength="10"
               placeholder="98XXXXXXXX"
-            />
-          </div>
-
-          <label for="signup-city">City</label>
-          <div class="login-input select-input">
-            <select id="signup-city" required>
+              />
+              </div>
+            </div>
+            <div class="signup-field">
+              <label for="signup-city">City</label>
+              <select id="signup-city" class="login-select" required>
               <option value="Pune">Pune</option>
               <option value="Ahmedabad">Ahmedabad</option>
               <option value="Surat">Surat</option>
@@ -163,19 +168,21 @@
               <option value="Nashik">Nashik</option>
               <option value="Kochi">Kochi</option>
               <option value="Mumbai">Mumbai</option>
-            </select>
-          </div>
-
-          <label for="signup-password">Create Password</label>
-          <div class="login-input">
-            <span data-icon="lock-keyhole"></span>
-            <input
+              </select>
+            </div>
+            <div class="signup-field full">
+              <label for="signup-password">Create Password</label>
+              <div class="login-input">
+              <span data-icon="lock-keyhole"></span>
+              <input
               id="signup-password"
               required
               type="password"
               minlength="4"
               placeholder="••••••••"
-            />
+              />
+              </div>
+            </div>
           </div>
 
           <p class="signup-error" role="alert" hidden></p>

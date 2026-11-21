@@ -3,7 +3,6 @@
  * Manages sessions, permissions for the 5-role workflow, customer registration, and route guarding.
  */
 window.BW = window.BW || {};
-const BW = window.BW;
 
 (() => {
   "use strict";
@@ -71,10 +70,10 @@ const BW = window.BW;
     customer: {
       role: "customer",
       label: "Customer",
-      modules: ["Customer Portal"],
-      write: ["Customer Portal"],
+      modules: ["My Solar Home", "Site Surveys", "My Quotations", "Installation & Warranty"],
+      write: ["My Solar Home", "Site Surveys", "My Quotations", "Installation & Warranty"],
       actions: ["submitSurvey", "acceptQuote", "viewPortal"],
-      defaultLanding: "customer-portal.html",
+      defaultLanding: "customer-overview.html",
     },
   };
 

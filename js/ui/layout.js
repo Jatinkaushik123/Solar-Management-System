@@ -3,14 +3,16 @@
  * Dynamic role-based sidebar with sunset scrim, top header, breadcrumbs, and Ctrl+K search palette.
  */
 window.BW = window.BW || {};
-const BW = window.BW;
 
 (() => {
   "use strict";
 
   const MODULE_ICONS = {
     Dashboard: "layout-dashboard",
-    "Customer Portal": "sun",
+    "My Solar Home": "sun",
+    "Site Surveys": "clipboard-list",
+    "My Quotations": "file-text",
+    "Installation & Warranty": "shield-check",
     Surveys: "clipboard-list",
     Quotations: "file-text",
     Projects: "folder-kanban",
@@ -21,7 +23,10 @@ const BW = window.BW;
 
   const MODULE_URLS = {
     Dashboard: "dashboard.html",
-    "Customer Portal": "customer-portal.html",
+    "My Solar Home": "customer-overview.html",
+    "Site Surveys": "customer-surveys.html",
+    "My Quotations": "customer-quotations.html",
+    "Installation & Warranty": "customer-warranty.html",
     Surveys: "surveys.html",
     Quotations: "quotations.html",
     Projects: "projects.html",
@@ -166,6 +171,110 @@ const BW = window.BW;
     input.focus();
   }
 
+  /* ---------- Top-right circular avatar + dropdown menu ---------- */
+  function avatarEl(initials, role, size = 40) {
+    const a = BW.ui.el("span", `profile-avatar role-ring-${role || "customer"}`);
+    a.style.setProperty("--avatar-size", `${size}px`);
+    a.append(BW.ui.el("span", "profile-initials", initials));
+    return a;
+  }
+
+  function profileMenu(user, initials) {
+    const wrap = BW.ui.el("div", "profile-menu");
+    const trigger = BW.ui.el("button", "profile-trigger");
+    trigger.type = "button";
+    trigger.setAttribute("aria-haspopup", "menu");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.setAttribute("aria-label", `Account menu for ${user?.name || "user"}`);
+    const triggerAvatar = avatarEl(initials, user?.role);
+    triggerAvatar.append(BW.ui.el("span", "online-dot"));
+    trigger.append(triggerAvatar);
+
+    const menu = BW.ui.el("div", "profile-dropdown");
+    menu.setAttribute("role", "menu");
+    menu.hidden = true;
+
+    const head = BW.ui.el("div", "profile-head");
+    const who = BW.ui.el("div", "profile-who");
+    who.append(
+      BW.ui.el("strong", "", user?.name || "Demo User"),
+      BW.ui.el("span", "profile-email", user?.email || ""),
+      BW.ui.roleBadge(user?.role || "customer"),
+    );
+    head.append(avatarEl(initials, user?.role, 48), who);
+
+    const item = (label, glyph, onClick, cls = "") => {
+      const b = BW.ui.button(label, onClick, `profile-item ${cls}`, glyph);
+      b.setAttribute("role", "menuitem");
+      return b;
+    };
+
+    // Quick role switcher: expands in place, one click signs in as that demo account.
+    const switchList = BW.ui.el("div", "profile-switch-list");
+    switchList.hidden = true;
+    for (const u of BW.auth.defaultUsers) {
+      if (u.email === user?.email) continue;
+      const b = item("", null, () => {
+        if (BW.auth.login(u.email, u.password)) {
+          const landing = BW.auth.current()?.defaultLanding || "dashboard.html";
+          location.href = landing;
+        }
+      }, "profile-switch-item");
+      b.append(BW.ui.roleBadge(u.role), BW.ui.el("span", "", u.name));
+      switchList.append(b);
+    }
+    const switchBtn = item("Change Account / Switch Role", "users", () => {
+      switchList.hidden = !switchList.hidden;
+      switchBtn.setAttribute("aria-expanded", String(!switchList.hidden));
+    });
+    switchBtn.setAttribute("aria-expanded", "false");
+
+    const resetBtn = item("Reset Demo Data", "layers", () => {
+      if (confirm("Reset SIMS demo data back to factory defaults?")) {
+        BW.store.reset();
+        BW.ui.toast("Demo data reset successfully!");
+        setTimeout(() => location.reload(), 400);
+      }
+    });
+    resetBtn.hidden = user?.role !== "admin";
+
+    const logoutBtn = item("Logout", "log-out", () => BW.auth.logout(), "profile-logout");
+
+    // Customers see only their profile details and Logout; staff keep the
+    // quick demo role switcher (and Admin keeps Reset Demo Data).
+    if (user?.role === "customer") {
+      menu.append(head, BW.ui.el("hr"), logoutBtn);
+    } else {
+      menu.append(head, BW.ui.el("hr"), switchBtn, switchList, resetBtn, BW.ui.el("hr"), logoutBtn);
+    }
+    wrap.append(trigger, menu);
+
+    const setOpen = (open) => {
+      menu.hidden = !open;
+      wrap.classList.toggle("open", open);
+      trigger.setAttribute("aria-expanded", String(open));
+      if (!open) {
+        switchList.hidden = true;
+        switchBtn.setAttribute("aria-expanded", "false");
+      }
+    };
+    trigger.onclick = (e) => {
+      e.stopPropagation();
+      setOpen(menu.hidden);
+      if (!menu.hidden) menu.querySelector(".profile-item:not([hidden])")?.focus();
+    };
+    document.addEventListener("click", (e) => {
+      if (!menu.hidden && !wrap.contains(e.target)) setOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !menu.hidden) {
+        setOpen(false);
+        trigger.focus();
+      }
+    });
+    return wrap;
+  }
+
   function renderShell() {
     const currentPage = BW.page || document.body.dataset.page;
     const workspace = document.querySelector("#workspace");
@@ -175,6 +284,7 @@ const BW = window.BW;
     workspace.replaceChildren();
 
     const user = BW.auth.current();
+    const isCustomer = user?.role === "customer";
     const accessibleModules = BW.auth.getAccessibleModules();
 
     // 1. Mobile Backdrop Scrim
@@ -201,14 +311,9 @@ const BW = window.BW;
 
     brand.append(logo, brandText, closeNavBtn);
 
+    // The active link is styled directly (no sliding indicator), so the
+    // highlight always matches the link no matter how many links a role sees.
     const nav = BW.ui.el("nav");
-    const navIndicator = BW.ui.el("span", "nav-indicator");
-    nav.append(navIndicator);
-
-    const activeIndex = accessibleModules.indexOf(currentPage);
-    if (activeIndex >= 0) {
-      nav.style.setProperty("--active-index", activeIndex);
-    }
 
     accessibleModules.forEach((modName, index) => {
       const isSelected = modName === currentPage;
@@ -216,7 +321,9 @@ const BW = window.BW;
       link.href = MODULE_URLS[modName] || "#";
       const iconGlyph = MODULE_ICONS[modName] || "file-text";
 
-      link.append(BW.ui.icon(iconGlyph), modName);
+      const labelWrap = BW.ui.el("span", "nav-link-label");
+      labelWrap.append(BW.ui.icon(iconGlyph), BW.ui.el("span", "", modName));
+      link.append(labelWrap);
       if (isSelected) {
         link.setAttribute("aria-current", "page");
         link.append(BW.ui.el("i"));
@@ -224,10 +331,9 @@ const BW = window.BW;
       nav.append(link);
     });
 
-    // Sidebar footer: User profile card + Admin Reset Demo
+    // Sidebar footer intentionally empty: the profile lives in the top-right
+    // avatar menu, so the sunset artwork shows cleanly.
     const footer = BW.ui.el("div", "sidebar-footer");
-    const accountCard = BW.ui.el("div", "account");
-
     const initials = (user?.name || "User")
       .split(" ")
       .map((w) => w[0])
@@ -235,38 +341,9 @@ const BW = window.BW;
       .slice(0, 2)
       .toUpperCase();
 
-    const avatar = BW.ui.el("span", "avatar", initials);
-    const accountInfo = BW.ui.el("div", "account-name", user?.name || "Demo User");
-    accountInfo.append(BW.ui.roleBadge(user?.role || "customer"));
-
-    const logoutBtn = BW.ui.button(
-      "",
-      () => BW.auth.logout(),
-      "icon-btn",
-      "log-out",
-    );
-    logoutBtn.setAttribute("aria-label", "Log out of SIMS");
-    logoutBtn.title = "Log out";
-
-    accountCard.append(avatar, accountInfo, logoutBtn);
-
-    const resetBtn = BW.ui.button(
-      "Reset Demo Data",
-      () => {
-        if (confirm("Reset SIMS demo data back to factory defaults?")) {
-          BW.store.reset();
-          BW.ui.toast("Demo data reset successfully!");
-          setTimeout(() => location.reload(), 400);
-        }
-      },
-      "secondary-btn reset-demo",
-    );
-    resetBtn.hidden = user?.role !== "admin";
-
-    footer.append(accountCard, resetBtn);
     sidebar.append(
       brand,
-      BW.ui.el("div", "nav-label", user?.role === "customer" ? "Customer Portal" : "Workspace"),
+      BW.ui.el("div", "nav-label", isCustomer ? "My Solar" : "Workspace"),
       nav,
       footer,
     );
@@ -286,7 +363,7 @@ const BW = window.BW;
 
     const crumb = BW.ui.el("div", "crumb");
     crumb.append(
-      BW.ui.el("span", "", user?.role === "customer" ? "Portal" : "Workspace"),
+      BW.ui.el("span", "", isCustomer ? "My Solar" : "Workspace"),
       BW.ui.icon("chevron-right", 14),
       currentPage,
     );
@@ -301,15 +378,29 @@ const BW = window.BW;
     );
     searchBtn.append(BW.ui.el("kbd", "", "Ctrl K"));
 
-    const dateSpan = BW.ui.el("span", "date");
-    dateSpan.append(
-      BW.ui.icon("calendar-days", 15),
-      BW.utils.formatDate(new Date()),
-    );
+    // Compact live clock, e.g. "21 Nov · 11:41:30 pm", ticking every second.
+    const dateSpan = BW.ui.el("span", "date header-clock");
+    const clockText = BW.ui.el("time", "");
+    dateSpan.append(BW.ui.icon("calendar-days", 15), clockText);
+    const tick = () => {
+      const now = new Date();
+      clockText.dateTime = now.toISOString();
+      clockText.textContent =
+        now.toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) +
+        " · " +
+        now.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    };
+    tick();
+    clearInterval(BW.clockTimer);
+    BW.clockTimer = setInterval(tick, 1000);
+    window.addEventListener("pagehide", () => clearInterval(BW.clockTimer), { once: true });
 
-    const roleIndicator = BW.ui.roleBadge(user?.role || "customer");
 
-    headerTools.append(searchBtn, dateSpan, roleIndicator);
+    // Customers never see the internal staff search / Ctrl+K palette.
+    const profile = profileMenu(user, initials);
+    // Role is shown in the avatar menu and by the avatar's coloured ring.
+    if (isCustomer) headerTools.append(dateSpan, profile);
+    else headerTools.append(searchBtn, dateSpan, profile);
     topHeader.append(hamburgerBtn, crumb, headerTools);
 
     const contentArea = BW.ui.el("main", "content");
@@ -329,7 +420,7 @@ const BW = window.BW;
 
     // Ctrl+K keyboard shortcut listener
     document.addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      if (!isCustomer && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         commandPalette();
       }

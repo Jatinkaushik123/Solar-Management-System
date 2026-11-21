@@ -1,3 +1,9 @@
+/* Zero-flash background lock: the browser never paints a white frame between pages. */
+html,
+body {
+  background-color: #0b1320 !important;
+  color: #ffffff;
+}
 html {
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;

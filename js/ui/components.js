@@ -4,7 +4,6 @@
  */
 window.BW = window.BW || {};
 window.BW.ui = window.BW.ui || {};
-const BW = window.BW;
 
 (() => {
   "use strict";
@@ -162,6 +161,12 @@ const BW = window.BW;
     Scheduled: "blue",
     Surveyed: "amber",
     Rejected: "red",
+    "Revision Required": "amber",
+    "On Hold": "amber",
+    Cancelled: "red",
+    Pending: "blue",
+    Confirmed: "green",
+    "Re-verification Required": "amber",
     Active: "teal",
     "In Stock": "green",
     "Low stock": "amber",
@@ -189,7 +194,7 @@ const BW = window.BW;
       admin: "Admin",
       tech: "Technician",
       sales: "Sales",
-      inventory: "Inventory Keeper",
+      inventory: "Inventory",
       customer: "Customer",
     };
     return el("span", `role-badge role-${role}`, labels[role] || role);
@@ -364,6 +369,70 @@ const BW = window.BW;
     return inputEl;
   }
 
+  /**
+   * Styled replacement for window.prompt() when a reason is required.
+   * Resolves with the trimmed reason, or null if the user cancels.
+   */
+  function reasonModal({
+    title,
+    message = "",
+    label = "Reason",
+    placeholder = "",
+    confirmLabel = "Confirm",
+    danger = false,
+  }) {
+    return new Promise((resolve) => {
+      const { dialog, body } = modal(title, "spotlight reason-modal");
+      const form = el("form");
+      form.noValidate = true;
+      const fieldLabel = el("label", "reason-label", label);
+      const input = el("textarea", "reason-input");
+      input.rows = 4;
+      input.maxLength = 500;
+      input.placeholder = placeholder;
+      input.required = true;
+      fieldLabel.append(input);
+      const error = el("p", "form-error");
+      error.setAttribute("role", "alert");
+      error.hidden = true;
+      const actions = el("div", "modal-actions");
+      const confirmBtn = button(confirmLabel, null, danger ? "primary-btn danger-solid" : "primary-btn", danger ? "x" : "check");
+      confirmBtn.type = "submit";
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(value);
+        if (dialog.open) dialog.close();
+      };
+      actions.append(button("Cancel", () => finish(null)), confirmBtn);
+      if (message) form.append(el("p", "form-caption", message));
+      form.append(fieldLabel, error, actions);
+      body.append(form);
+
+      input.addEventListener("input", () => {
+        input.classList.remove("field-invalid");
+        error.hidden = true;
+      });
+      form.onsubmit = (e) => {
+        e.preventDefault();
+        const value = input.value.trim();
+        if (value.length < 3) {
+          error.textContent = "Please enter a reason (at least 3 characters).";
+          error.hidden = false;
+          input.classList.add("field-invalid");
+          input.focus();
+          return;
+        }
+        finish(value);
+      };
+      // Esc / backdrop click close the dialog without a value.
+      dialog.addEventListener("close", () => finish(null));
+      dialog.addEventListener("cancel", () => finish(null));
+      requestAnimationFrame(() => input.focus());
+    });
+  }
+
   function alert(container, message, type = "error") {
     container.textContent = message;
     container.className = `form-error ${type === "warning" ? "form-warning" : ""}`;
@@ -408,6 +477,7 @@ const BW = window.BW;
     modal,
     toast,
     alert,
+    reasonModal,
     field,
     statusPill,
     lockBadge,
@@ -431,3 +501,4 @@ const BW = window.BW;
     viewOnly,
   });
 })();
+
