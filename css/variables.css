@@ -116,3 +116,18 @@ button svg,
 a svg {
   flex-shrink: 0;
 }
+
+/* ---------- iOS frosted glass design tokens ---------- */
+:root {
+  --glass-bg: linear-gradient(145deg, rgba(28, 41, 64, 0.62) 0%, rgba(17, 26, 43, 0.48) 100%);
+  /* Denser variant for overlays (drawers, menus) so text over busy content stays readable */
+  --glass-bg-strong: linear-gradient(145deg, rgba(28, 41, 64, 0.86) 0%, rgba(17, 26, 43, 0.8) 100%);
+  --glass-blur: blur(20px) saturate(160%);
+  --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-edge: rgba(255, 255, 255, 0.2); /* iOS top-edge specular light catch */
+  --glass-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.14);
+  --glass-radius: 18px;
+  /* Nested tiles inside a glass card: tint only, no second blur */
+  --glass-tile: rgba(255, 255, 255, 0.035);
+  --glass-tile-border: rgba(255, 255, 255, 0.08);
+}

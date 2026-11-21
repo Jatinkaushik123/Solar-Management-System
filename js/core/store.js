@@ -7,12 +7,12 @@ window.BW = window.BW || {};
 (() => {
   "use strict";
 
-  const STORAGE_KEY = "bijli-wala.sims.v5";
+  const STORAGE_KEY = "bijli-wala.sims.v6";
 
   // Drop data left behind by older storage versions so it never piles up.
   try {
     for (const k of Object.keys(localStorage)) {
-      if (k.startsWith("bijli-wala.") && k !== STORAGE_KEY && !k.startsWith("bijli-wala.session")) {
+      if (k.startsWith("bijli-wala.") && k !== STORAGE_KEY) {
         localStorage.removeItem(k);
       }
     }

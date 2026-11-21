@@ -4,16 +4,6 @@
  */
 window.BW = window.BW || {};
 
-// A cross-page view transition is aborted (harmlessly) when the user navigates
-// again before it finishes; swallow that rejection so it isn't a console error.
-for (const type of ["pageswap", "pagereveal"]) {
-  window.addEventListener(type, (e) => {
-    e.viewTransition?.ready?.catch(() => {});
-    e.viewTransition?.finished?.catch(() => {});
-    e.viewTransition?.updateCallbackDone?.catch(() => {});
-  });
-}
-
 (() => {
   "use strict";
 
@@ -97,6 +87,14 @@ for (const type of ["pageswap", "pagereveal"]) {
 
   function formatDate(value) {
     if (value == null || value === "") return "—";
+    // Full timestamps (e.g. "2026-11-21T20:24:35+00:00" from the API) are shown
+    // in the viewer's local date, not the UTC date in the first 10 characters.
+    if (/T\d{2}:\d{2}/.test(String(value))) {
+      const ts = new Date(value);
+      if (!Number.isNaN(ts.getTime())) {
+        return ts.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+      }
+    }
     const iso = String(value).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(value);
     const date = new Date(iso + "T12:00:00");

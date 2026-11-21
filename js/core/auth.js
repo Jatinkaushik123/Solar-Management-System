@@ -1,6 +1,9 @@
 /**
- * Bijli Wala SIMS — Multi-Role Authentication & RBAC Guard
- * Manages sessions, permissions for the 5-role workflow, customer registration, and route guarding.
+ * Bijli Wala SIMS — Supabase Authentication & RBAC Guard
+ * Signs in through the hosted Supabase Auth + /v1/me portal gate
+ * (js/core/identity-client.mjs), keeps the session (tokens + profile only,
+ * never the password) in sessionStorage across page navigations, refreshes
+ * the access token, and exposes an authorised API request helper.
  */
 window.BW = window.BW || {};
 
@@ -81,7 +84,6 @@ window.BW = window.BW || {};
     {
       id: "USR-001",
       email: "admin@bijliwala.in",
-      password: "admin123",
       name: "Arjun Mehta",
       role: "admin",
       phone: "9820011223",
@@ -92,7 +94,6 @@ window.BW = window.BW || {};
     {
       id: "USR-002",
       email: "tech@bijliwala.in",
-      password: "tech123",
       name: "Kavita Iyer",
       role: "tech",
       phone: "9820022334",
@@ -103,7 +104,6 @@ window.BW = window.BW || {};
     {
       id: "USR-003",
       email: "sales@bijliwala.in",
-      password: "sales123",
       name: "Rajesh Sharma",
       role: "sales",
       phone: "9820033445",
@@ -114,7 +114,6 @@ window.BW = window.BW || {};
     {
       id: "USR-004",
       email: "inventory@bijliwala.in",
-      password: "store123",
       name: "Imran Khan",
       role: "inventory",
       phone: "9820044556",
@@ -125,7 +124,6 @@ window.BW = window.BW || {};
     {
       id: "USR-005",
       email: "customer@bijliwala.in",
-      password: "cust123",
       name: "Amit Kumar",
       role: "customer",
       phone: "9820055667",
@@ -135,7 +133,22 @@ window.BW = window.BW || {};
     },
   ];
 
-  const SESSION_KEY = "bijli-wala.session.v3";
+  // Session holds tokens and the server profile only. Passwords never touch storage.
+  const SESSION_KEY = "bijli-wala.auth.v1";
+  const REFRESH_MARGIN_S = 60;
+
+  // identity-client.mjs sits next to this file; resolve it from this script's URL
+  // so pages in /pages/ and the root login page both load it.
+  const CLIENT_URL = new URL("./identity-client.mjs", document.currentScript?.src || location.href).href;
+  let clientPromise = null;
+  const client = () => (clientPromise ||= import(CLIENT_URL));
+
+  /** Backend role -> UI role key. The one place this mapping lives. */
+  const BACKEND_TO_UI_ROLE = { technician: "tech" };
+  function toUiRole(backendRole) {
+    const r = String(backendRole || "").toLowerCase();
+    return BACKEND_TO_UI_ROLE[r] || (ROLES[r] ? r : "customer");
+  }
 
   function getStorage() {
     try {
@@ -145,108 +158,166 @@ window.BW = window.BW || {};
     }
   }
 
-  function getAllUsers() {
-    if (BW.store && typeof BW.store.get === "function") {
-      const stored = BW.store.get("Users");
-      if (Array.isArray(stored) && stored.length) return stored;
-    }
-    return DEFAULT_USERS;
-  }
-
-  function current() {
+  function readSession() {
     try {
       const raw = getStorage()?.getItem(SESSION_KEY);
-      if (!raw) return null;
-      const session = JSON.parse(raw);
-      const all = getAllUsers();
-      const user = all.find(
-        (u) => u.email.toLowerCase() === session.email.toLowerCase(),
-      );
-      if (!user) return null;
-      const roleDef = ROLES[user.role] || ROLES.customer;
-      return {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        roleLabel: roleDef.label,
-        phone: user.phone || "",
-        city: user.city || "",
-        defaultLanding: roleDef.defaultLanding,
-      };
+      return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
     }
   }
 
-  function login(email, password) {
-    const cleanEmail = String(email || "").trim().toLowerCase();
-    const all = getAllUsers();
-    const user = all.find(
-      (u) =>
-        u.email.toLowerCase() === cleanEmail &&
-        (u.password === password || password === "demo"),
-    );
-
-    if (!user) return null;
-    if (user.status === "Inactive") {
-      throw new Error("This account has been deactivated. Please contact an Administrator.");
-    }
-
-    getStorage()?.setItem(
-      SESSION_KEY,
-      JSON.stringify({ email: user.email, loggedAt: new Date().toISOString() }),
-    );
-    return current();
+  function writeSession(sess) {
+    if (sess) getStorage()?.setItem(SESSION_KEY, JSON.stringify(sess));
+    else getStorage()?.removeItem(SESSION_KEY);
   }
 
-  function signupCustomer({ name, email, phone, city, password }) {
-    const cleanEmail = String(email || "").trim().toLowerCase();
-    const cleanName = String(name || "").trim();
-    const cleanPhone = String(phone || "").trim().replace(/[\s-]/g, "");
-
-    if (!cleanName) throw new Error("Full name is required.");
-    if (!cleanEmail) throw new Error("Valid email is required.");
-    if (!BW.utils.phoneOk(cleanPhone)) {
-      throw new Error("Phone must be a valid 10-digit Indian mobile number (starts with 6–9).");
-    }
-    if (!password || password.length < 4) {
-      throw new Error("Password must be at least 4 characters.");
-    }
-
-    const all = getAllUsers();
-    if (all.some((u) => u.email.toLowerCase() === cleanEmail)) {
-      throw new Error("An account with this email already exists. Please sign in instead.");
-    }
-
-    const newUser = {
-      id: BW.utils.generateId("USR", all),
-      email: cleanEmail,
-      password,
-      name: cleanName,
-      role: "customer",
-      phone: cleanPhone,
-      city: city || "Pune",
-      status: "Active",
-      joinedDate: BW.utils.todayISO(),
+  function sessionFromAuth(authSession, me, profile) {
+    const expiresAt =
+      authSession.expires_at || Math.floor(Date.now() / 1000) + Number(authSession.expires_in || 3600);
+    return {
+      access_token: authSession.access_token,
+      refresh_token: authSession.refresh_token,
+      expires_at: expiresAt,
+      user: {
+        id: me.id,
+        email: me.email,
+        name: profile?.display_name || me.display_name || me.email,
+        backendRole: me.role,
+        role: toUiRole(me.role),
+        portal: me.portal,
+        actions: me.actions || [],
+      },
     };
+  }
 
-    if (BW.store && typeof BW.store.save === "function") {
-      BW.store.save("Users", newUser);
-    }
+  /** Synchronous current-user view used by every page (guard, layout, RBAC). */
+  function current() {
+    const sess = readSession();
+    if (!sess?.user) return null;
+    const roleDef = ROLES[sess.user.role] || ROLES.customer;
+    return {
+      id: sess.user.id,
+      email: sess.user.email,
+      name: sess.user.name,
+      role: sess.user.role,
+      backendRole: sess.user.backendRole,
+      portal: sess.user.portal,
+      serverActions: sess.user.actions,
+      roleLabel: roleDef.label,
+      phone: "",
+      city: "",
+      defaultLanding: roleDef.defaultLanding,
+    };
+  }
 
-    getStorage()?.setItem(
-      SESSION_KEY,
-      JSON.stringify({ email: newUser.email, loggedAt: new Date().toISOString() }),
-    );
-
+  /**
+   * Sign in through a portal gate. portal: "customer" | "staff".
+   * Throws an Error with .status/.code from the API on failure.
+   */
+  async function login(portal, email, password) {
+    const { signIn, getProfile } = await client();
+    const { session, me } = await signIn(portal, String(email || "").trim(), password);
+    const profile = await getProfile(session.access_token, me.id).catch(() => null);
+    writeSession(sessionFromAuth(session, me, profile));
     return current();
   }
 
-  function logout() {
-    getStorage()?.removeItem(SESSION_KEY);
-    const inPages = location.pathname.includes("/pages/");
-    location.href = inPages ? "../index.html" : "index.html";
+  /** Customer self-registration. Supabase requires email confirmation before sign-in. */
+  async function signupCustomer({ name, email, password }) {
+    const { signUpCustomer } = await client();
+    return signUpCustomer(String(email || "").trim(), password, String(name || "").trim());
+  }
+
+  function loginUrl() {
+    return location.pathname.includes("/pages/") ? "../index.html" : "index.html";
+  }
+
+  async function logout() {
+    const sess = readSession();
+    writeSession(null);
+    if (sess?.access_token) {
+      try {
+        const { signOut } = await client();
+        await signOut(sess.access_token);
+      } catch {
+        // Already expired or offline: the local session is cleared either way.
+      }
+    }
+    location.href = loginUrl();
+  }
+
+  async function refreshSession(sess) {
+    const { SUPABASE_URL, request } = await client();
+    const data = await request(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
+      method: "POST",
+      body: { refresh_token: sess.refresh_token },
+    });
+    const next = {
+      ...sess,
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || sess.refresh_token,
+      expires_at: data.expires_at || Math.floor(Date.now() / 1000) + Number(data.expires_in || 3600),
+    };
+    writeSession(next);
+    return next;
+  }
+
+  async function validSession() {
+    let sess = readSession();
+    if (!sess) throw Object.assign(new Error("not_signed_in"), { status: 401, code: "not_signed_in" });
+    if (sess.expires_at && sess.expires_at - Date.now() / 1000 < REFRESH_MARGIN_S) {
+      sess = await refreshSession(sess);
+    }
+    return sess;
+  }
+
+  /**
+   * Authorised call to the hosted API (path under API_BASE, e.g. "/v1/quotes/<id>").
+   * Refreshes an expiring token, retries once after a 401, and sends the user back
+   * to sign in if the session cannot be recovered.
+   */
+  async function apiRequest(path, { method = "GET", body, idempotencyKey } = {}) {
+    const { API_BASE, request } = await client();
+    let sess = await validSession().catch(() => null);
+    if (!sess) {
+      writeSession(null);
+      location.replace(loginUrl());
+      throw Object.assign(new Error("not_signed_in"), { status: 401, code: "not_signed_in" });
+    }
+    const send = (token) => request(API_BASE + path, { method, token, body, idempotencyKey });
+    try {
+      return await send(sess.access_token);
+    } catch (err) {
+      if (err.status !== 401) throw err;
+      try {
+        sess = await refreshSession(sess);
+        return await send(sess.access_token);
+      } catch (retryErr) {
+        if (retryErr.status === 401 || retryErr === err) {
+          writeSession(null);
+          location.replace(loginUrl());
+        }
+        throw retryErr;
+      }
+    }
+  }
+
+  /**
+   * Idempotency keys: one UUID per user action, reused if that action is retried
+   * (stored in sessionStorage under the action name), cleared after success.
+   */
+  function idempotencyKey(action) {
+    const k = "bijli-wala.idem." + action;
+    let key = getStorage()?.getItem(k);
+    if (!key) {
+      key = crypto.randomUUID();
+      getStorage()?.setItem(k, key);
+    }
+    return key;
+  }
+  function clearIdempotencyKey(action) {
+    getStorage()?.removeItem("bijli-wala.idem." + action);
   }
 
   function canWrite(module) {
@@ -273,10 +344,9 @@ window.BW = window.BW || {};
   function guard(requiredModule) {
     const user = current();
     const inPages = location.pathname.includes("/pages/");
-    const loginUrl = inPages ? "../index.html" : "index.html";
 
     if (!user) {
-      location.replace(loginUrl);
+      location.replace(loginUrl());
       return false;
     }
 
@@ -296,10 +366,14 @@ window.BW = window.BW || {};
   BW.auth = {
     roles: ROLES,
     defaultUsers: DEFAULT_USERS,
+    toUiRole,
     current,
     login,
     signupCustomer,
     logout,
+    request: apiRequest,
+    idempotencyKey,
+    clearIdempotencyKey,
     canWrite,
     can,
     getAccessibleModules,

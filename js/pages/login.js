@@ -1,73 +1,74 @@
 /**
- * Bijli Wala SIMS — Login & Self Sign-Up Controller
- * Handles 5-role authentication, customer registration, Google Auth demo simulation, and quick role switching.
+ * Bijli Wala SIMS — Login & Customer Sign-Up Controller
+ * Signs in through the hosted Supabase Auth with a portal gate
+ * ("customer" or "staff" via GET /v1/me?portal=...). Credentials come from the
+ * form only and are never stored.
  */
 (() => {
   "use strict";
 
-  // If already logged in, redirect to user's landing page
+  // Already signed in: go to this user's landing page.
   const currentUser = BW.auth.current();
   if (currentUser) {
     location.replace(`pages/${currentUser.defaultLanding || "dashboard.html"}`);
     return;
   }
 
-  // Populate data-icon SVGs
   document.querySelectorAll("[data-icon]").forEach((node) => {
     node.replaceChildren(BW.ui.icon(node.dataset.icon));
   });
 
-  const tabLogin = document.querySelector("#tab-login");
-  const tabAdmin = document.querySelector("#tab-admin");
-  const googleBtn = document.querySelector("#google-auth-btn");
-
+  const tabCustomer = document.querySelector("#tab-login");
+  const tabStaff = document.querySelector("#tab-admin");
   const loginForm = document.querySelector("#login-form");
   const signupForm = document.querySelector("#signup-form");
   const toggleSignupBtn = document.querySelector("#toggle-signup");
   const backToLoginBtn = document.querySelector("#back-to-login");
-
+  const signupPrompt = toggleSignupBtn?.closest(".signup-prompt");
   const emailInput = document.querySelector("#email");
   const passwordInput = document.querySelector("#password");
   const toggleVisibilityBtn = document.querySelector("#visibility");
   const loginError = document.querySelector(".login-error");
   const signupError = document.querySelector(".signup-error");
-  const demoPills = document.querySelector(".demo-pills");
+  const submitBtn = loginForm?.querySelector(".login-submit");
 
-  // Tab switching (Login vs Admin)
-  tabLogin?.addEventListener("click", () => {
-    tabLogin.classList.add("active");
-    tabLogin.setAttribute("aria-selected", "true");
-    tabAdmin.classList.remove("active");
-    tabAdmin.setAttribute("aria-selected", "false");
-    emailInput.placeholder = "Email or EmployeeID";
-    emailInput.value = "";
-    passwordInput.value = "";
-  });
+  let portal = "customer";
 
-  tabAdmin?.addEventListener("click", () => {
-    tabAdmin.classList.add("active");
-    tabAdmin.setAttribute("aria-selected", "true");
-    tabLogin.classList.remove("active");
-    tabLogin.setAttribute("aria-selected", "false");
-    emailInput.value = "admin@bijliwala.in";
-    passwordInput.value = "admin123";
+  function setPortal(next) {
+    portal = next;
+    const isCustomer = next === "customer";
+    tabCustomer.classList.toggle("active", isCustomer);
+    tabStaff.classList.toggle("active", !isCustomer);
+    tabCustomer.setAttribute("aria-selected", String(isCustomer));
+    tabStaff.setAttribute("aria-selected", String(!isCustomer));
+    emailInput.placeholder = isCustomer ? "you@example.com" : "staff email";
+    submitBtn.textContent = isCustomer ? "Sign in to customer portal" : "Sign in to staff portal";
+    // Only customers can self-register; staff join by admin invitation.
+    if (signupPrompt) signupPrompt.hidden = !isCustomer;
     loginError.hidden = true;
-  });
+  }
+  tabCustomer?.addEventListener("click", () => setPortal("customer"));
+  tabStaff?.addEventListener("click", () => setPortal("staff"));
+  setPortal("customer");
 
-  // Google OAuth demo simulation
-  googleBtn?.addEventListener("click", () => {
-    try {
-      const user = BW.auth.login("customer@bijliwala.in", "cust123");
-      if (user) {
-        location.assign(`pages/${user.defaultLanding}`);
-      }
-    } catch (e) {
-      loginError.hidden = false;
-      loginError.textContent = e.message;
+  function show(el, message) {
+    el.textContent = message;
+    el.hidden = false;
+  }
+
+  function signInMessage(err) {
+    if (err.status === 400) return "Email or password is incorrect.";
+    if (err.status === 401) return "This account cannot sign in. It may be disabled or unconfirmed.";
+    if (err.status === 403) {
+      return portal === "customer"
+        ? "This is a staff account. Switch to the Staff tab to sign in."
+        : "This account is not a staff account. Switch to the Customer tab to sign in.";
     }
-  });
+    if (err.status === 429) return "Too many attempts. Please wait a minute and try again.";
+    if (!err.status) return "Can't reach the sign-in service. Check your connection and try again.";
+    return `Sign-in failed (${err.status}${err.code ? " · " + err.code : ""}).`;
+  }
 
-  // Toggle Signup Form
   toggleSignupBtn?.addEventListener("click", () => {
     loginForm.hidden = true;
     signupForm.hidden = false;
@@ -82,7 +83,6 @@
     emailInput.focus();
   });
 
-  // Password visibility toggle
   toggleVisibilityBtn?.addEventListener("click", () => {
     const isPassword = passwordInput.type === "password";
     passwordInput.type = isPassword ? "text" : "password";
@@ -90,23 +90,24 @@
     toggleVisibilityBtn.replaceChildren(BW.ui.icon(isPassword ? "eye-off" : "eye"));
   });
 
-  // Login form submission
-  loginForm?.addEventListener("submit", (e) => {
+  loginForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     loginError.hidden = true;
-
+    if (!emailInput.value.trim() || !passwordInput.value) {
+      show(loginError, "Enter your email and password.");
+      return;
+    }
+    submitBtn.disabled = true;
+    const label = submitBtn.textContent;
+    submitBtn.textContent = "Signing in…";
     try {
-      const user = BW.auth.login(emailInput.value, passwordInput.value);
-      if (user) {
-        location.assign(`pages/${user.defaultLanding || "dashboard.html"}`);
-      } else {
-        loginError.hidden = false;
-        loginError.textContent =
-          "Invalid email or password. Click one of the demo role cards below to sign in instantly.";
-      }
+      const user = await BW.auth.login(portal, emailInput.value, passwordInput.value);
+      passwordInput.value = "";
+      location.assign(`pages/${user.defaultLanding || "dashboard.html"}`);
     } catch (err) {
-      loginError.hidden = false;
-      loginError.textContent = err.message;
+      show(loginError, signInMessage(err));
+      submitBtn.disabled = false;
+      submitBtn.textContent = label;
     }
   });
 
@@ -114,92 +115,39 @@
     loginError.hidden = true;
   });
 
-  // Customer Self Sign-up form submission
-  signupForm?.addEventListener("submit", (e) => {
+  signupForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
     signupError.hidden = true;
-
-    const name = document.querySelector("#signup-name").value;
-    const email = document.querySelector("#signup-email").value;
-    const phone = document.querySelector("#signup-phone").value;
-    const city = document.querySelector("#signup-city").value;
-    const password = document.querySelector("#signup-password").value;
-
+    const name = document.querySelector("#signup-name").value.trim();
+    const email = document.querySelector("#signup-email").value.trim();
+    const passField = document.querySelector("#signup-password");
+    if (!name || !email || !passField.value) {
+      show(signupError, "Enter your name, email and a password.");
+      return;
+    }
+    if (passField.value.length < 6) {
+      show(signupError, "Password must be at least 6 characters.");
+      return;
+    }
+    const btn = signupForm.querySelector(".login-submit");
+    btn.disabled = true;
     try {
-      const user = BW.auth.signupCustomer({ name, email, phone, city, password });
-      if (user) {
-        location.assign(`pages/${user.defaultLanding || "customer-overview.html"}`);
-      }
+      await BW.auth.signupCustomer({ name, email, password: passField.value });
+      passField.value = "";
+      signupError.classList.add("signup-success");
+      show(signupError, `Account created. We've sent a confirmation link to ${email}. Confirm it, then sign in on the Customer tab.`);
     } catch (err) {
-      signupError.hidden = false;
-      signupError.textContent = err.message;
+      signupError.classList.remove("signup-success");
+      show(
+        signupError,
+        err.status === 429
+          ? "Too many sign-up emails right now. Please try again in a few minutes."
+          : err.status === 422 || err.status === 400
+            ? "That email can't be registered (it may already have an account)."
+            : `Sign-up failed (${err.status || "network"}${err.code ? " · " + err.code : ""}).`,
+      );
+    } finally {
+      btn.disabled = false;
     }
   });
-
-  // Render 5 Demo Role Pills
-  const rolesInfo = [
-    {
-      role: "admin",
-      label: "Admin",
-      email: "admin@bijliwala.in",
-      pass: "admin123",
-      name: "Arjun Mehta",
-    },
-    {
-      role: "tech",
-      label: "Technician",
-      email: "tech@bijliwala.in",
-      pass: "tech123",
-      name: "Kavita Iyer",
-    },
-    {
-      role: "sales",
-      label: "Sales",
-      email: "sales@bijliwala.in",
-      pass: "sales123",
-      name: "Rajesh Sharma",
-    },
-    {
-      role: "inventory",
-      label: "Inventory",
-      email: "inventory@bijliwala.in",
-      pass: "store123",
-      name: "Imran Khan",
-    },
-    {
-      role: "customer",
-      label: "Customer",
-      email: "customer@bijliwala.in",
-      pass: "cust123",
-      name: "Amit Kumar",
-    },
-  ];
-
-  if (demoPills) {
-    rolesInfo.forEach((item) => {
-      const pill = BW.ui.el("button", "demo-pill");
-      pill.type = "button";
-      pill.setAttribute("aria-label", `Sign in as ${item.label} (${item.name})`);
-
-      const topRow = BW.ui.el("div", "demo-pill-top");
-      topRow.append(BW.ui.roleBadge(item.role), BW.ui.el("strong", "", item.name));
-
-      const subRow = BW.ui.el("span", "demo-pill-meta", `${item.email}`);
-      pill.append(topRow, subRow);
-
-      pill.onclick = () => {
-        try {
-          const user = BW.auth.login(item.email, item.pass);
-          if (user) {
-            location.assign(`pages/${user.defaultLanding}`);
-          }
-        } catch (e) {
-          loginError.hidden = false;
-          loginError.textContent = e.message;
-        }
-      };
-
-      demoPills.append(pill);
-    });
-  }
 })();

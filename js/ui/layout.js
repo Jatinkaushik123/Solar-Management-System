@@ -171,6 +171,15 @@ window.BW = window.BW || {};
     input.focus();
   }
 
+  /* ---------- Static solar backdrop behind the workspace ---------- */
+  // One fixed, non-interactive layer: warm and teal radial light that the
+  // frosted-glass cards blur and refract. No moving tiles or particles.
+  function ambientBackground() {
+    const bg = BW.ui.el("div", "solar-ambient-bg");
+    bg.setAttribute("aria-hidden", "true");
+    return bg;
+  }
+
   /* ---------- Top-right circular avatar + dropdown menu ---------- */
   function avatarEl(initials, role, size = 40) {
     const a = BW.ui.el("span", `profile-avatar role-ring-${role || "customer"}`);
@@ -197,7 +206,7 @@ window.BW = window.BW || {};
     const head = BW.ui.el("div", "profile-head");
     const who = BW.ui.el("div", "profile-who");
     who.append(
-      BW.ui.el("strong", "", user?.name || "Demo User"),
+      BW.ui.el("strong", "", user?.name || user?.email || "Signed in"),
       BW.ui.el("span", "profile-email", user?.email || ""),
       BW.ui.roleBadge(user?.role || "customer"),
     );
@@ -208,26 +217,6 @@ window.BW = window.BW || {};
       b.setAttribute("role", "menuitem");
       return b;
     };
-
-    // Quick role switcher: expands in place, one click signs in as that demo account.
-    const switchList = BW.ui.el("div", "profile-switch-list");
-    switchList.hidden = true;
-    for (const u of BW.auth.defaultUsers) {
-      if (u.email === user?.email) continue;
-      const b = item("", null, () => {
-        if (BW.auth.login(u.email, u.password)) {
-          const landing = BW.auth.current()?.defaultLanding || "dashboard.html";
-          location.href = landing;
-        }
-      }, "profile-switch-item");
-      b.append(BW.ui.roleBadge(u.role), BW.ui.el("span", "", u.name));
-      switchList.append(b);
-    }
-    const switchBtn = item("Change Account / Switch Role", "users", () => {
-      switchList.hidden = !switchList.hidden;
-      switchBtn.setAttribute("aria-expanded", String(!switchList.hidden));
-    });
-    switchBtn.setAttribute("aria-expanded", "false");
 
     const resetBtn = item("Reset Demo Data", "layers", () => {
       if (confirm("Reset SIMS demo data back to factory defaults?")) {
@@ -240,12 +229,12 @@ window.BW = window.BW || {};
 
     const logoutBtn = item("Logout", "log-out", () => BW.auth.logout(), "profile-logout");
 
-    // Customers see only their profile details and Logout; staff keep the
-    // quick demo role switcher (and Admin keeps Reset Demo Data).
-    if (user?.role === "customer") {
-      menu.append(head, BW.ui.el("hr"), logoutBtn);
+    // Switching account = sign out and sign in again (Supabase session).
+    // Admin also keeps Reset Demo Data for the local demo records.
+    if (user?.role === "admin") {
+      menu.append(head, BW.ui.el("hr"), resetBtn, BW.ui.el("hr"), logoutBtn);
     } else {
-      menu.append(head, BW.ui.el("hr"), switchBtn, switchList, resetBtn, BW.ui.el("hr"), logoutBtn);
+      menu.append(head, BW.ui.el("hr"), logoutBtn);
     }
     wrap.append(trigger, menu);
 
@@ -253,10 +242,6 @@ window.BW = window.BW || {};
       menu.hidden = !open;
       wrap.classList.toggle("open", open);
       trigger.setAttribute("aria-expanded", String(open));
-      if (!open) {
-        switchList.hidden = true;
-        switchBtn.setAttribute("aria-expanded", "false");
-      }
     };
     trigger.onclick = (e) => {
       e.stopPropagation();
@@ -408,7 +393,7 @@ window.BW = window.BW || {};
     BW.main = contentArea;
 
     mainArea.append(topHeader, contentArea);
-    workspace.append(scrim, sidebar, mainArea);
+    workspace.append(ambientBackground(), scrim, sidebar, mainArea);
 
     function toggleMobile(open) {
       sidebar.classList.toggle("visible", open);

@@ -86,15 +86,8 @@ window.BW.controllers = window.BW.controllers || {};
       required: true,
     });
 
-    const passField = BW.ui.field(grid, {
-      name: "password",
-      label: isNew ? "Initial Password" : "Change Password",
-      type: "password",
-      value: user?.password || "",
-      required: isNew,
-      placeholder: "••••••••",
-      hint: isNew ? "Minimum 4 characters" : "Leave unchanged to keep current password",
-    });
+    // Sign-in accounts and passwords are managed by Supabase Auth (staff join by
+    // admin invitation), so this local directory never stores a password.
 
     const statusField = BW.ui.field(grid, {
       name: "status",
@@ -145,7 +138,6 @@ window.BW.controllers = window.BW.controllers || {};
           role: roleField.value,
           phone,
           city: cityField.value,
-          password: passField.value || user?.password || "demo123",
           status: statusField.value,
           joinedDate: user?.joinedDate || BW.utils.todayISO(),
         };

@@ -406,37 +406,7 @@ window.BW.controllers = window.BW.controllers || {};
       });
   }
 
-  /* ======================= 3. My Quotations ======================= */
-  function acceptQuote(quote) {
-    const t = quoteLines(quote);
-    if (!confirm(`Accept ${quote.id} for a ${quote["Capacity (kW)"]} kW system at a net ${inr(t.net)}? This starts your installation project.`)) return;
-    try {
-      BW.store.save("Quotations", { ...quote, status: "Accepted" });
-      if (!BW.store.get("Projects").some((p) => p.sourceQuotationId === quote.id)) {
-        BW.store.save("Projects", {
-          "Project name": `${quote.Customer} Residence`,
-          customerEmail: quote.customerEmail,
-          City: quote.City,
-          "Capacity (kW)": quote["Capacity (kW)"],
-          "Lead engineer": "Priya Shah",
-          "Crew lead": "Vikram Singh (Crew Alpha)",
-          "System type": quote["System type"] || "On-Grid",
-          "Subsidy scheme": quote["Subsidy scheme"] || "PM Surya Ghar Subsidy",
-          stage: "Planning",
-          status: "Planning",
-          revenue: quote["Amount (₹)"],
-          sourceQuotationId: quote.id,
-        });
-      }
-      BW.ui.toast("Quotation accepted. Your installation project has been created.");
-      renderQuotations();
-    } catch (err) {
-      BW.ui.toast(err.message, "error");
-    }
-  }
-
-  // Gross = Equipment + Installation + GST and Net = Gross − Subsidy, always
-  // computed from the line items, never subtracted from a stored gross.
+  /* Local demo quote math (used by the My Solar Home summary card). */
   function quoteLines(q) {
     const kit = q.kit || {};
     const calc = BW.catalog.calculateKit({
@@ -468,111 +438,486 @@ window.BW.controllers = window.BW.controllers || {};
     };
   }
 
-  function downloadSummary(q, s) {
-    const rows = s.lines
-      .map((l) => `<tr><td>${BW.utils.escapeHTML(l.slot)}</td><td>${BW.utils.escapeHTML(l.name)}</td><td>${l.qty}</td><td>${inr(l.total)}</td><td>${BW.utils.escapeHTML(l.warranty)}</td></tr>`)
-      .join("");
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${q.id} · Quote summary</title>
-<style>body{font:14px/1.5 system-ui,sans-serif;max-width:720px;margin:32px auto;color:#14202f}h1{margin:0}table{width:100%;border-collapse:collapse;margin:16px 0}td,th{text-align:left;padding:6px;border-bottom:1px solid #ddd}.t{display:flex;justify-content:space-between}.net{font-weight:700;font-size:18px}</style></head><body>
-<h1>Bijli Wala · Solar quotation ${q.id}</h1>
-<p>${BW.utils.escapeHTML(q.Customer)} · ${BW.utils.escapeHTML(q.City)} · ${q["Capacity (kW)"]} kW ${BW.utils.escapeHTML(q["System type"] || "On-Grid")} · Status: ${q.status}</p>
-<table><tr><th>Item</th><th>Model</th><th>Qty</th><th>Amount</th><th>Warranty</th></tr>${rows}
-<tr><td>Installation</td><td>${q["Capacity (kW)"]} kW × ${inr(s.rate)}/kW</td><td>1</td><td>${inr(s.install)}</td><td>Workmanship</td></tr></table>
-<div class="t"><span>Equipment</span><span>${inr(s.equipment)}</span></div>
-<div class="t"><span>Installation</span><span>${inr(s.install)}</span></div>
-<div class="t"><span>${BW.utils.escapeHTML(s.gstLabel)}</span><span>${inr(s.taxes)}</span></div>
-<div class="t"><span>Gross total</span><span>${inr(s.gross)}</span></div>
-<div class="t"><span>PM Surya Ghar subsidy</span><span>− ${inr(s.subsidy)}</span></div>
-<div class="t net"><span>Net payable</span><span>${inr(s.net)}</span></div>
-<p><small>Generated ${new Date().toLocaleString("en-IN")}. Subsidy is credited to your bank account after commissioning.</small></p>
-</body></html>`;
-    const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-    const a = Object.assign(document.createElement("a"), { href: url, download: `${q.id}-quote-summary.html` });
-    document.body.append(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+  /* ======================= 3. My Quotations (hosted API) ======================= */
+  // Server data only: GET /v1/enquiries, /v1/enquiries/{id}, /v1/quotes/{id},
+  // /v1/quotes/{id}/payment; POST decision / checkout / verify with Idempotency-Key.
+
+  /** Paise (integer) -> "₹1,65,000" (keeps paise when not a whole rupee). */
+  function paise(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    const rupees = n / 100;
+    return "₹" + rupees.toLocaleString("en-IN", {
+      minimumFractionDigits: Number.isInteger(rupees) ? 0 : 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  const pick = (o, ...keys) => {
+    for (const k of keys) {
+      const v = k.split(".").reduce((x, part) => (x == null ? x : x[part]), o);
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return undefined;
+  };
+  const human = (s) => String(s || "").replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+  const quoteUrl = (enquiryId, quoteId) =>
+    `customer-quotations.html?${new URLSearchParams({ ...(enquiryId ? { enquiry: enquiryId } : {}), ...(quoteId ? { quote: quoteId } : {}) })}`;
+
+  function apiError(err) {
+    if (err.status === 403 || err.status === 404) return null; // handled as access denied
+    if (err.status === 503) return "The service is temporarily unavailable. Please try again shortly.";
+    if (!err.status) return "Can't reach the server. Check your connection and try again.";
+    return `Request failed (${err.status}${err.code ? " · " + err.code : ""}).`;
   }
 
-  function renderQuotations() {
-    const user = BW.auth.current();
-    const d = mine(user);
-    const root = page("My Quotations", "Your solar proposals, itemised with subsidy and net cost.");
-    if (!d.quotes.length) {
-      const p = panel("No quotation yet");
-      p.append(el("p", "empty", "Once your site survey is approved, your engineer prepares a proposal and it appears here."));
-      root.append(p);
-      return;
+  function deniedPanel(root, what) {
+    const p = panel(`${what} not available`);
+    const box = el("div", "cx-alert");
+    box.setAttribute("role", "alert");
+    const text = el("div");
+    text.append(
+      el("strong", "", "You don't have access to this record."),
+      el("p", "", "It doesn't exist or belongs to another account. Taking you back to your own quotations…"),
+    );
+    box.append(BW.ui.icon("lock-keyhole", 22), text, BW.ui.button("Back to my quotations", () => location.replace("customer-quotations.html"), "primary-btn"));
+    p.append(box);
+    root.append(p);
+    setTimeout(() => location.replace("customer-quotations.html"), 4000);
+  }
+
+  function errorPanel(root, message, retry) {
+    const p = panel("Something went wrong");
+    const box = el("div", "cx-alert");
+    box.setAttribute("role", "alert");
+    box.append(BW.ui.icon("alert-triangle", 22), el("p", "", message), BW.ui.button("Retry", retry, "primary-btn"));
+    p.append(box);
+    root.append(p);
+  }
+
+  async function listEnquiries() {
+    const items = [];
+    let after = 0;
+    for (let page = 0; page < 10; page++) {
+      const res = await BW.auth.request(`/v1/enquiries?after=${encodeURIComponent(after)}&limit=50`);
+      items.push(...(res?.items || []));
+      if (res?.next_after == null || res.next_after === after || !(res.items || []).length) break;
+      after = res.next_after;
     }
-    for (const q of d.quotes) {
-      const s = quoteLines(q);
-      const card = el("article", "panel cx-quote");
-      const head = el("div", "cx-quote-head");
-      const title = el("div");
-      title.append(
-        el("small", "cx-eyebrow", `${q.id} · ${q["System type"] || "On-Grid"} · ${q.City}`),
-        el("h2", "", `${q["Capacity (kW)"]} kW Rooftop Solar System`),
-      );
-      head.append(title, BW.ui.statusPill(q.status));
+    return items;
+  }
 
-      const body = el("div", "cx-quote-body");
-      const items = el("ul", "cx-items");
-      for (const l of s.lines) {
-        const li = el("li");
-        const left = el("div");
-        left.append(el("small", "", l.slot), el("strong", "", `${l.qty} × ${l.name}`), el("span", "", `Warranty ${l.warranty}`));
-        li.append(left, el("b", "", inr(l.total)));
-        items.append(li);
+  /** Quote references visible on an enquiry detail (customers see published ones). */
+  function quoteRefs(detail) {
+    const raw = pick(detail, "quotes", "quote_refs", "quote_references", "visible_quotes") || [];
+    const refs = (Array.isArray(raw) ? raw : [raw]).map((q) =>
+      typeof q === "string" ? { id: q } : { id: q.id || q.quote_id, state: q.state, revision: q.revision, total_paise: q.total_paise },
+    );
+    const single = pick(detail, "quote_id", "active_quote_id", "current_quote.id");
+    if (single && !refs.some((r) => r.id === single)) refs.push({ id: single });
+    return refs.filter((r) => r.id);
+  }
+
+  async function renderQuotations() {
+    const root = page("My Quotations", "Your solar requests and the quotations issued for them.");
+    const params = new URLSearchParams(location.search);
+    const quoteId = params.get("quote");
+    const enquiryId = params.get("enquiry");
+    const loading = el("p", "muted", "Loading…");
+    root.append(loading);
+    try {
+      if (quoteId) await showQuote(root, quoteId, enquiryId);
+      else if (enquiryId) await showEnquiry(root, enquiryId);
+      else await showEnquiryList(root);
+    } catch (err) {
+      const msg = apiError(err);
+      if (msg === null) deniedPanel(root, quoteId ? "Quotation" : "Request");
+      else errorPanel(root, msg, () => renderQuotations());
+    } finally {
+      loading.remove();
+    }
+  }
+
+  async function showEnquiryList(root) {
+    const items = await listEnquiries();
+    const p = panel("Your requests", `${items.length} on record`);
+    if (!items.length) {
+      p.append(el("p", "empty", "No requests yet. Once you submit a site request it appears here with its quotation."));
+    } else {
+      const grid = el("div", "cx-survey-grid");
+      for (const e of items) {
+        const card = el("article", "cx-survey");
+        const top = el("div", "cx-survey-top");
+        top.append(el("strong", "", e.reference || e.id), BW.ui.statusPill(human(e.state)));
+        const meta = el("dl", "cx-meta");
+        for (const [k, v] of [
+          ["Site", e.site],
+          ["Submitted", e.created_at ? BW.utils.formatDate(e.created_at) : null],
+          ["Revision", e.revision],
+        ]) {
+          if (v == null || v === "") continue;
+          const r = el("div");
+          r.append(el("dt", "", k), el("dd", "", String(v)));
+          meta.append(r);
+        }
+        card.append(top, meta, BW.ui.button("Open request", () => (location.href = quoteUrl(e.id)), "secondary-btn", "file-text"));
+        grid.append(card);
       }
-      const inst = el("li");
-      const instLeft = el("div");
-      instLeft.append(el("small", "", "Installation"), el("strong", "", `${q["Capacity (kW)"]} kW × ${inr(s.rate)}/kW`), el("span", "", "Wiring, mounting and commissioning"));
-      inst.append(instLeft, el("b", "", inr(s.install)));
-      items.append(inst);
+      p.append(grid);
+    }
+    root.append(p);
+  }
 
-      const sum = el("dl", "cx-sum");
-      const row = (k, v, cls = "") => {
-        const r = el("div", cls);
-        r.append(el("dt", "", k), el("dd", "", v));
-        sum.append(r);
-      };
-      row("Equipment", inr(s.equipment));
-      row("Installation", inr(s.install));
-      row(s.gstLabel, inr(s.taxes));
-      row("Gross total", inr(s.gross), "is-gross");
-      row(s.subsidy ? "PM Surya Ghar subsidy" : "Subsidy", `− ${inr(s.subsidy)}`, "is-subsidy");
-      row("Net payable", inr(s.net), "is-net");
-      const side = el("div", "cx-quote-side");
-      side.append(sum);
-      if (s.subsidy) side.append(el("p", "cx-fine", "The subsidy is credited to your bank account by the government after commissioning."));
+  async function showEnquiry(root, enquiryId) {
+    const d = await BW.auth.request(`/v1/enquiries/${encodeURIComponent(enquiryId)}`);
+    const refs = quoteRefs(d);
+    // A single issued quote: go straight to it.
+    if (refs.length === 1) {
+      history.replaceState(null, "", quoteUrl(enquiryId, refs[0].id));
+      return showQuote(root, refs[0].id, enquiryId, d);
+    }
+    const p = panel(`Request ${d.reference || d.id}`, BW.ui.statusPill(human(d.state)));
+    p.append(BW.ui.button("← All requests", () => (location.href = "customer-quotations.html"), "secondary-btn"));
+    if (!refs.length) p.append(el("p", "empty", "No quotation has been issued for this request yet."));
+    for (const r of refs) {
+      p.append(BW.ui.button(`View quotation ${r.revision != null ? "rev " + r.revision : r.id.slice(0, 8)}${r.state ? " · " + human(r.state) : ""}`, () => (location.href = quoteUrl(enquiryId, r.id)), "primary-btn", "file-text"));
+    }
+    root.append(p);
+    renderHistory(root, d);
+  }
 
-      const actions = el("div", "cx-quote-actions");
-      if (q.status === "Accepted") {
-        const tag = el("span", "accepted-badge");
-        tag.append(BW.ui.icon("check"), " Accepted · installation underway");
-        actions.append(tag);
-      } else if (q.status === "Sent") {
-        actions.append(BW.ui.button("Accept Quotation", () => acceptQuote(q), "primary-btn", "check"));
-      } else {
+  function renderHistory(root, d) {
+    const hist = pick(d, "history", "events") || [];
+    if (!Array.isArray(hist) || !hist.length) return;
+    const p = panel("Request history");
+    const ol = el("ol", "cx-timeline");
+    for (const h of hist) {
+      const li = el("li", "is-done");
+      const dot = el("span", "cx-dot");
+      dot.append(BW.ui.icon("check", 12));
+      const t = el("div");
+      t.append(
+        el("strong", "", human(h.state || h.event || h.type || h.action || "Update")),
+        el("small", "", [h.at || h.created_at ? BW.utils.formatDate(h.at || h.created_at) : "", h.reason || h.note || ""].filter(Boolean).join(" · ")),
+      );
+      li.append(dot, t);
+      ol.append(li);
+    }
+    p.append(ol);
+    root.append(p);
+  }
+
+  function quoteLineItems(q) {
+    const raw = pick(q, "lines", "items", "line_items", "snapshot.lines", "snapshot.items") || [];
+    return (Array.isArray(raw) ? raw : []).map((l) => {
+      const qty = Number(pick(l, "quantity", "qty") ?? 1);
+      const unit = pick(l, "unit_price_paise", "unit_paise", "price_paise");
+      const total = pick(l, "line_total_paise", "total_paise", "amount_paise") ?? (unit != null ? unit * qty : undefined);
+      return { name: pick(l, "name", "item_name", "description", "item_id") || "Item", qty, unit, total };
+    });
+  }
+
+  async function showQuote(root, quoteId, enquiryId, enquiryDetail) {
+    const q = await BW.auth.request(`/v1/quotes/${encodeURIComponent(quoteId)}`);
+    if (!enquiryDetail && q.enquiry_id) {
+      // Direct quote link: fetch the request only for its reference (e.g. ENQ-25).
+      enquiryDetail = await BW.auth.request(`/v1/enquiries/${encodeURIComponent(q.enquiry_id)}`).catch(() => null);
+    }
+    const card = el("article", "panel cx-quote");
+    const head = el("div", "cx-quote-head");
+    const title = el("div");
+    const ref = (enquiryDetail && enquiryDetail.reference) || pick(q, "enquiry_reference", "reference");
+    title.append(
+      el("small", "cx-eyebrow", [ref, `Quote ${String(q.id || quoteId).slice(0, 8)}`, q.revision != null ? `rev ${q.revision}` : null].filter(Boolean).join(" · ")),
+      el("h2", "", "Solar installation quotation"),
+    );
+    head.append(title, BW.ui.statusPill(human(q.state)));
+
+    const body = el("div", "cx-quote-body");
+    const items = el("ul", "cx-items");
+    for (const l of quoteLineItems(q)) {
+      const li = el("li");
+      const left = el("div");
+      left.append(el("strong", "", `${l.qty} × ${l.name}`));
+      if (l.unit != null) left.append(el("span", "", `${paise(l.unit)} each`));
+      li.append(left, el("b", "", l.total != null ? paise(l.total) : "—"));
+      items.append(li);
+    }
+    const inst = pick(q, "installation_paise", "pricing.installation_paise", "terms.installation_paise");
+    if (inst != null) {
+      const li = el("li");
+      const left = el("div");
+      left.append(el("small", "", "Installation"), el("strong", "", "Installation & commissioning"));
+      li.append(left, el("b", "", paise(inst)));
+      items.append(li);
+    }
+    const discount = pick(q, "discount_paise", "pricing.discount_paise", "terms.discount_paise");
+    if (discount) {
+      const li = el("li");
+      const left = el("div");
+      left.append(el("small", "", "Discount"), el("strong", "", "Discount"));
+      li.append(left, el("b", "", "− " + paise(discount)));
+      items.append(li);
+    }
+
+    const total = pick(q, "total_paise", "pricing.total_paise", "snapshot.total_paise");
+    const advance = pick(q, "advance_paise", "pricing.advance_paise", "snapshot.advance_paise");
+    const kind = pick(q, "advance_kind", "terms.advance_kind", "pricing.advance_kind");
+    const value = pick(q, "advance_value", "terms.advance_value", "pricing.advance_value");
+    const pct = kind === "percentage" && value != null ? ` (${Number(value) / 100}%)` : "";
+    const sum = el("dl", "cx-sum");
+    const row = (k, v, cls = "") => {
+      const r = el("div", cls);
+      r.append(el("dt", "", k), el("dd", "", v));
+      sum.append(r);
+    };
+    row("Total", paise(total), "is-net");
+    row(`Advance${pct}`, paise(advance), "is-gross");
+    const validUntil = pick(q, "valid_until", "terms.valid_until");
+    if (validUntil) row("Valid until", BW.utils.formatDate(validUntil));
+    if (q.decided_at) row("Decided", BW.utils.formatDate(q.decided_at));
+
+    const side = el("div", "cx-quote-side");
+    const actions = el("div", "cx-quote-actions");
+    const msg = el("p", "form-error");
+    msg.setAttribute("role", "alert");
+    msg.hidden = true;
+    const allowed = (q.allowed_actions || []).map((a) => String(a).toLowerCase());
+    const canAccept = allowed.some((a) => /accept|decide|decision/.test(a)) || (!q.allowed_actions && q.state === "issued");
+    if (q.state === "accepted") {
+      const tag = el("span", "accepted-badge");
+      tag.append(BW.ui.icon("check"), " Accepted");
+      actions.append(tag);
+    } else if (canAccept) {
+      const btn = BW.ui.button("Accept Quotation", () => accept(q.id, btn, msg, enquiryId), "primary-btn", "check");
+      actions.append(btn);
+    } else {
+      actions.append(el("p", "cx-fine", `This quotation is ${human(q.state).toLowerCase()}.`));
+    }
+    side.append(sum, actions, msg);
+    body.append(items, side);
+    card.append(head, body);
+
+    const back = BW.ui.button("← All requests", () => (location.href = "customer-quotations.html"), "secondary-btn");
+    root.append(back, card);
+
+    if (q.state === "accepted") {
+      const pay = panel("Payment");
+      pay.id = "payment";
+      root.append(pay);
+      await renderPayment(pay, q.id);
+    }
+  }
+
+  async function accept(quoteId, btn, msg, enquiryId) {
+    if (!confirm("Accept this quotation? You'll then be able to pay the advance or the full amount.")) return;
+    const action = `decision:${quoteId}:accept`;
+    const key = BW.auth.idempotencyKey(action); // reused if this action is retried
+    btn.disabled = true;
+    msg.hidden = true;
+    try {
+      await BW.auth.request(`/v1/quotes/${encodeURIComponent(quoteId)}/decision`, {
+        method: "POST",
+        body: { decision: "accept" },
+        idempotencyKey: key,
+      });
+      BW.auth.clearIdempotencyKey(action);
+      BW.ui.toast("Quotation accepted");
+      // Reload server state: quote + payment
+      history.replaceState(null, "", quoteUrl(enquiryId, quoteId));
+      renderQuotations();
+    } catch (err) {
+      btn.disabled = false;
+      if (err.status && err.status !== 503) BW.auth.clearIdempotencyKey(action); // definitive answer
+      msg.textContent =
+        err.status === 409
+          ? `This quotation can't be accepted right now (${err.code}). It may have expired or already been decided. Refresh to see its current state.`
+          : apiError(err) || "You don't have access to this quotation.";
+      msg.hidden = false;
+    }
+  }
+
+  /* ---------- Payment status & Razorpay Standard Checkout ---------- */
+  async function renderPayment(container, quoteId, notice) {
+    container.querySelectorAll(":scope > :not(.panel-heading)").forEach((n) => n.remove());
+    let s;
+    try {
+      s = await BW.auth.request(`/v1/quotes/${encodeURIComponent(quoteId)}/payment`);
+    } catch (err) {
+      if (err.status === 503) s = { state: "checkout_unavailable" };
+      else {
+        const msg = apiError(err) || "Payment details are not available for this account.";
+        container.append(el("p", "form-error", msg));
+        return;
+      }
+    }
+
+    const state = s.state || "unknown";
+    const sum = el("dl", "cx-sum");
+    const row = (k, v, cls = "") => {
+      const r = el("div", cls);
+      r.append(el("dt", "", k), el("dd", "", v));
+      sum.append(r);
+    };
+    if (s.total_paise != null) row("Total", paise(s.total_paise));
+    if (s.advance_paise != null) row("Advance", paise(s.advance_paise));
+    if (s.collected_paise != null) row("Collected", paise(s.collected_paise), "is-subsidy");
+    if (s.remaining_paise != null) row("Remaining balance", paise(s.remaining_paise), "is-net");
+
+    const status = el("div", "cx-pay-status");
+    const label = {
+      checkout_available: "Choose how to pay",
+      checkout_unavailable: "Checkout unavailable",
+      payment_pending: "Payment pending",
+      under_review: "Under review",
+      confirmed: "Order confirmed",
+    }[state] || human(state);
+    const tone = { confirmed: "green", checkout_unavailable: "slate", under_review: "amber", payment_pending: "blue" }[state] || "teal";
+    status.append(el("span", `badge ${tone}`, label));
+    if (notice) status.append(el("p", "cx-fine", notice));
+
+    const actions = el("div", "cx-quote-actions");
+    const amountFor = (choice) =>
+      choice === "advance" ? s.advance_paise : s.collected_paise ? s.remaining_paise : s.total_paise;
+    const choices = Array.isArray(s.choices) ? s.choices : [];
+
+    if (state === "checkout_unavailable") {
+      for (const c of choices.length ? choices : ["advance", "full"]) {
+        const b = BW.ui.button(`${c === "advance" ? "Pay advance" : "Pay in full"} · ${paise(amountFor(c))}`, null, "secondary-btn");
+        b.disabled = true;
+        actions.append(b);
+      }
+      status.append(el("p", "cx-fine", "Online payment isn't available right now. Your accepted quotation is saved."));
+    } else if (state === "checkout_available" || (state === "confirmed" && choices.length)) {
+      for (const c of choices) {
         actions.append(
-          el(
-            "p",
-            "cx-fine",
-            q.holdReason
-              ? `${q.status}: ${q.holdReason}`
-              : q.status === "Draft"
-                ? "Draft: your engineer is still finalising this proposal."
-                : `${q.status}: our team is revising this proposal.`,
+          BW.ui.button(
+            `${c === "advance" ? "Pay advance" : s.collected_paise ? "Pay balance" : "Pay in full"} · ${paise(amountFor(c))}`,
+            () => startCheckout(container, quoteId, c),
+            c === "advance" || choices.length === 1 ? "primary-btn" : "secondary-btn",
           ),
         );
       }
-      actions.append(BW.ui.button("Download Quote Summary", () => downloadSummary(q, s), "secondary-btn", "file-text"));
-      side.append(actions);
-
-      body.append(items, side);
-      card.append(head, body);
-      root.append(card);
+    } else if (state === "payment_pending" || state === "under_review") {
+      status.append(el("p", "cx-fine", state === "under_review" ? "We're confirming your payment with the bank. This page refreshes the status on request." : "Complete the open payment, or refresh to check its status."));
     }
+    actions.append(BW.ui.button("Refresh status", () => renderPayment(container, quoteId), "secondary-btn"));
+
+    container.append(status, sum, actions);
+
+    const receipts = s.receipts || [];
+    if (receipts.length) {
+      container.append(el("h3", "detail-title", "Receipts"));
+      const ul = el("ul", "cx-items");
+      for (const r of receipts) {
+        const li = el("li");
+        const left = el("div");
+        left.append(el("strong", "", r.provider_payment_id || r.id), el("span", "", r.credited_at ? BW.utils.formatDate(r.credited_at) : ""));
+        li.append(left, el("b", "", paise(r.amount_paise)));
+        ul.append(li);
+      }
+      container.append(ul);
+    }
+    if (s.order) {
+      const meta = el("dl", "cx-meta");
+      for (const [k, v] of [
+        ["Order", s.order.id],
+        ["Confirmed", s.order.confirmed_at ? BW.utils.formatDate(s.order.confirmed_at) : null],
+        ["Pick list", s.order.pick_list_id],
+        ["Work order", s.order.work_order_id],
+      ]) {
+        if (!v) continue;
+        const r = el("div");
+        r.append(el("dt", "", k), el("dd", "", v));
+        meta.append(r);
+      }
+      container.append(el("h3", "detail-title", "Order"), meta);
+    }
+  }
+
+  async function startCheckout(container, quoteId, choice) {
+    const action = `checkout:${quoteId}:${choice}`;
+    const key = BW.auth.idempotencyKey(action);
+    let res;
+    try {
+      res = await BW.auth.request(`/v1/quotes/${encodeURIComponent(quoteId)}/checkout`, {
+        method: "POST",
+        body: { choice },
+        idempotencyKey: key,
+      });
+      BW.auth.clearIdempotencyKey(action);
+    } catch (err) {
+      const definitive = err.status && !(err.status === 503 && err.code === "checkout_creation_uncertain");
+      if (definitive) BW.auth.clearIdempotencyKey(action);
+      const notice =
+        err.code === "stock_shortage"
+          ? "Equipment unavailable. Some items are out of stock right now. Please retry later."
+          : err.code === "payment_under_review" || err.code === "checkout_creation_uncertain"
+            ? "Under review. We're checking an earlier payment attempt before starting a new one."
+            : err.status === 503
+              ? "Checkout unavailable. Please try again later."
+              : apiError(err) || "You can't start a payment for this quotation.";
+      await renderPayment(container, quoteId, notice);
+      if (err.code === "stock_shortage") {
+        container.querySelector(".cx-quote-actions")?.prepend(
+          BW.ui.button("Retry", () => startCheckout(container, quoteId, choice), "primary-btn"),
+        );
+      }
+      return;
+    }
+    const attemptId = res?.attempt?.id;
+    const checkout = res?.checkout;
+    if (!checkout) {
+      await renderPayment(container, quoteId, "Preparing your payment… refresh in a moment.");
+      return;
+    }
+    await openRazorpay(container, quoteId, attemptId, checkout);
+  }
+
+  function loadRazorpay() {
+    if (window.Razorpay) return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const sc = document.createElement("script");
+      sc.src = "https://checkout.razorpay.com/v1/checkout.js";
+      sc.onload = resolve;
+      sc.onerror = () => reject(new Error("razorpay_load_failed"));
+      document.head.append(sc);
+    });
+  }
+
+  async function openRazorpay(container, quoteId, attemptId, checkout) {
+    try {
+      await loadRazorpay();
+    } catch {
+      await renderPayment(container, quoteId, "Couldn't load the payment window. Check your connection and try again.");
+      return;
+    }
+    const user = BW.auth.current();
+    const rzp = new window.Razorpay({
+      key: checkout.keyId,
+      order_id: checkout.orderId,
+      amount: checkout.amountPaise,
+      currency: checkout.currency,
+      name: "Bijli Wala",
+      description: "Solar installation payment",
+      prefill: { email: user?.email || "" },
+      handler: async (resp) => {
+        const action = `verify:${attemptId}`;
+        const key = BW.auth.idempotencyKey(action);
+        try {
+          await BW.auth.request(`/v1/checkouts/${encodeURIComponent(attemptId)}/verify`, {
+            method: "POST",
+            body: { payment_id: resp.razorpay_payment_id, signature: resp.razorpay_signature },
+            idempotencyKey: key,
+          });
+          BW.auth.clearIdempotencyKey(action);
+          await renderPayment(container, quoteId, "Payment received. Thank you!");
+        } catch (err) {
+          await renderPayment(container, quoteId, `We couldn't verify the payment yet (${err.status || "network"}). Refresh status in a moment.`);
+        }
+      },
+      modal: { ondismiss: () => renderPayment(container, quoteId) },
+    });
+    rzp.open();
   }
 
   /* ================== 4. Installation & Warranty ================== */
