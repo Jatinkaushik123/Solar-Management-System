@@ -46,103 +46,6 @@ window.BW.controllers = window.BW.controllers || {};
     };
   }
 
-  /* ---------- Journey: derived from the customer's LATEST live records ---------- */
-  // Each step is done / active / rejected / warn / todo. Steps are sequential:
-  // the first step that is not done stops the journey, so a rejected latest
-  // survey always wins over older seeded installation data.
-  function journey(d) {
-    const survey = d.surveys[0];
-    const quote = d.quotes[0];
-    const project = d.projects[0];
-    const QUOTE_BLOCKED = {
-      Rejected: "Quotation Rejected",
-      "Revision Required": "Quotation Under Revision",
-      "On Hold": "Quotation On Hold",
-      Cancelled: "Quotation Cancelled",
-    };
-    const steps = [];
-    let blocked = false;
-    const next = (label, done, pending) => {
-      if (blocked) return steps.push({ label, state: "todo", hint: "Upcoming" });
-      if (done) return steps.push({ label, state: "done", hint: "Completed" });
-      blocked = true;
-      steps.push({ label: pending.label || label, state: pending.state || "active", hint: pending.hint });
-    };
-
-    next("Site Survey", !!survey, { hint: "Pending submission" });
-    next(
-      "Survey Approved",
-      survey?.status === "Approved",
-      survey?.status === "Rejected"
-        ? { label: "Survey Rejected", state: "rejected", hint: "Action needed" }
-        : { label: "Survey Review", hint: "Engineer review in progress" },
-    );
-    next(
-      "Quotation Ready",
-      ["Sent", "Accepted"].includes(quote?.status),
-      QUOTE_BLOCKED[quote?.status]
-        ? {
-            label: QUOTE_BLOCKED[quote.status],
-            state: quote.status === "Cancelled" ? "rejected" : "warn",
-            hint: quote.holdReason || "Our team is revising it",
-          }
-        : { hint: "Being prepared" },
-    );
-    next(
-      "Installation",
-      quote?.status === "Accepted" && !!project && (project.status === "Completed" || project.stage === "Commissioning"),
-      quote?.status === "Sent"
-        ? { label: "Accept Quotation", hint: "Waiting for your acceptance" }
-        : project?.status === "On hold"
-          ? { label: "Installation On Hold", state: "warn", hint: project.holdReason || "Paused by our team" }
-          : { hint: project ? project.stage : "Scheduling crew" },
-    );
-    next("Live & Active", project?.status === "Completed", { hint: "Commissioning" });
-
-    const idx = steps.findIndex((st) => st.state !== "done");
-    const step = steps[idx];
-    const stage =
-      idx === -1
-        ? { label: "Live & Active", tone: "green", detail: "Your system is generating power." }
-        : !survey
-          ? { label: "Awaiting Survey", tone: "blue", detail: "Request a site survey to begin." }
-          : {
-              label: step.label,
-              tone: { rejected: "red", warn: "amber" }[step.state] || "teal",
-              detail:
-                step.state === "rejected"
-                  ? `Reason: ${idx === 1 ? survey.rejectionReason || "See engineer notes." : step.hint}`
-                  : step.state === "warn"
-                    ? step.hint
-                    : project && idx >= 3
-                      ? `Project ${project.id} · ${project.stage}`
-                      : step.hint,
-            };
-    return { steps, current: idx === -1 ? steps.length : idx, stage, survey, quote, project };
-  }
-
-  function rejectionBanner(survey) {
-    const box = el("div", "cx-alert");
-    box.setAttribute("role", "alert");
-    const text = el("div");
-    text.append(
-      el("strong", "", `Survey ${survey.id} was not approved`),
-      el("p", "", `Reason from our engineer: ${survey.rejectionReason || "No reason recorded."}`),
-      el("small", "", "Fix the details and resubmit. A new survey will be scheduled."),
-    );
-    box.append(
-      BW.ui.icon("alert-triangle", 22),
-      text,
-      BW.ui.button(
-        "Resubmit Site Survey",
-        () => (location.href = `customer-surveys.html#resubmit=${survey.id}`),
-        "primary-btn",
-        "clipboard-list",
-      ),
-    );
-    return box;
-  }
-
   function stepper(steps) {
     const ol = el("ol", "journey-stepper");
     const doneCount = steps.filter((s) => s.state === "done").length;
@@ -192,250 +95,6 @@ window.BW.controllers = window.BW.controllers || {};
     else valueEl.textContent = value;
     card.append(top, valueEl, el("p", "", detail));
     return card;
-  }
-
-  /* ======================= 1. My Solar Home ======================= */
-  function renderHome() {
-    const user = BW.auth.current();
-    const d = mine(user);
-    const j = journey(d);
-    const { steps, current } = j;
-    const rejected = j.survey?.status === "Rejected";
-    const root = page(
-      `Welcome back, ${user.name}`,
-      "Here's where your rooftop solar system stands today.",
-      BW.ui.button(
-        rejected ? "Resubmit Site Survey" : "Request Site Survey",
-        () =>
-          (location.href = rejected
-            ? `customer-surveys.html#resubmit=${j.survey.id}`
-            : "customer-surveys.html#new"),
-        "primary-btn",
-        "plus",
-      ),
-    );
-    if (rejected) root.append(rejectionBanner(j.survey));
-
-    const track = panel("Your solar journey", current >= 5 ? "All steps complete" : `Step ${current + 1} of 5`);
-    track.append(stepper(steps));
-
-    const { project, quote } = j;
-    const kw = project?.["Capacity (kW)"] ?? quote?.["Capacity (kW)"];
-    const type = project?.["System type"] || quote?.["System type"] || "On-Grid";
-    const subsidy = quote ? quoteLines(quote).subsidy : 0;
-    // ~1,400 kWh per kW per year in India at about ₹8 per unit.
-    const yearlySavings = kw ? Math.round(kw * 1400 * 8) : 0;
-
-    const cards = el("div", "cx-cards");
-    cards.append(
-      summaryCard("System size", kw ? `${kw} kW ${type}` : "To be sized", kw ? "Rooftop solar system" : "Sized after your site survey", "zap", "amber"),
-      summaryCard(
-        "Current stage",
-        j.stage.label,
-        j.stage.detail,
-        "activity",
-        "teal",
-        ["red", "amber"].includes(j.stage.tone) ? j.stage.tone : null,
-      ),
-      summaryCard(
-        "Subsidy & savings",
-        subsidy ? `${inr(subsidy)} subsidy` : kw ? "Not eligible" : "—",
-        yearlySavings ? `Estimated ${inr(yearlySavings)} saved per year on bills` : "Estimated once your system is sized",
-        "shield-check",
-        "green",
-      ),
-    );
-
-    const next = el("div", "cx-next");
-    const nextLinks = [
-      ["Site Surveys", "customer-surveys.html", "clipboard-list", `${d.surveys.length} submitted`],
-      ["My Quotations", "customer-quotations.html", "file-text", `${d.quotes.length} proposal${d.quotes.length === 1 ? "" : "s"}`],
-      ["Installation & Warranty", "customer-warranty.html", "shield-check", `${d.warranties.length} warranties active`],
-    ];
-    for (const [label, href, glyph, meta] of nextLinks) {
-      const a = el("a", "cx-link");
-      a.href = href;
-      a.append(BW.ui.icon(glyph), el("span", "", label), el("small", "", meta), BW.ui.icon("chevron-right", 16));
-      next.append(a);
-    }
-    root.append(track, cards, next);
-  }
-
-  /* ======================= 2. Site Surveys ======================= */
-  function renderSurveys() {
-    const user = BW.auth.current();
-    const d = mine(user);
-    const root = page("Site Surveys", "Request a rooftop assessment and follow its status.");
-    const latest = d.surveys[0];
-    const resubmitId = (location.hash.match(/^#resubmit=(.+)$/) || [])[1];
-    const source =
-      d.surveys.find((x) => x.id === resubmitId && x.status === "Rejected") ||
-      (latest?.status === "Rejected" ? latest : null);
-    if (latest?.status === "Rejected") root.append(rejectionBanner(latest));
-
-    const formPanel = panel(source ? `Resubmit site survey (replaces ${source.id})` : "Request a new site survey");
-    formPanel.id = "new";
-    const form = el("form", "cx-form");
-    form.noValidate = true;
-    const grid = el("div", "form-grid");
-    const alertEl = el("p", "form-error");
-    alertEl.setAttribute("role", "alert");
-    alertEl.hidden = true;
-    const f = (o) => BW.ui.field(grid, { required: true, ...o });
-    const roofTotal = f({ name: "roofTotal", label: "Total roof space (sq ft)", type: "number", min: 50, step: 1, placeholder: "e.g. 600" });
-    const roofUsable = f({ name: "roofUsable", label: "Usable sunlit area (sq ft)", type: "number", min: 30, step: 1, placeholder: "e.g. 400", hint: "About 100 sq ft is needed per kW" });
-    const direction = f({ name: "Roof Direction", label: "Roof direction", options: BW.catalog.lists.roofDirections, value: "South" });
-    const roofType = f({ name: "Roof type", label: "Roof type", options: BW.catalog.lists.roofTypes, value: "RCC terrace" });
-    const bill = f({ name: "bill", label: "Average monthly bill (₹)", type: "number", min: 100, step: 50, placeholder: "e.g. 3500" });
-    const city = f({ name: "City", label: "City", options: BW.catalog.lists.cities, value: user.city || "Pune" });
-    const phone = f({ name: "Phone", label: "Mobile number", type: "tel", value: user.phone || "", placeholder: "10-digit mobile" });
-    const date = f({ name: "Survey date", label: "Preferred survey date", type: "date", value: BW.utils.getTodayISO() });
-    const notes = f({ name: "Notes", label: "Address & access notes", type: "textarea", required: false, placeholder: "Floor, terrace access, nearby shade (trees, water tank)…" });
-    notes.closest("label").classList.add("span-2");
-    const checkDate = BW.utils.guardFutureDate(date, alertEl, "Survey date");
-    if (source) {
-      // Pre-fill from the rejected survey so the customer only fixes what's wrong.
-      const pre = {
-        roofTotal: source["Total roof space (sq ft)"],
-        roofUsable: source["Usable sunlit area (sq ft)"],
-        "Roof Direction": source["Roof Direction"],
-        "Roof type": source["Roof type"],
-        bill: source["Monthly Bill (₹)"],
-        City: source.City,
-        Phone: source.Phone || user.phone,
-        Notes: source.Notes,
-      };
-      for (const [name, val] of Object.entries(pre))
-        if (val != null && val !== "") grid.querySelector(`[name="${name}"]`).value = val;
-    }
-
-    const submit = BW.ui.button("Submit survey request", null, "primary-btn", "clipboard-list");
-    submit.type = "submit";
-    const actions = el("div", "modal-actions");
-    actions.append(submit);
-    form.append(grid, alertEl, actions);
-    formPanel.append(form);
-
-    const fail = (msg, input) => {
-      alertEl.textContent = msg;
-      alertEl.hidden = false;
-      input?.classList.add("field-invalid");
-      input?.focus();
-    };
-    form.oninput = (e) => e.target.classList?.remove("field-invalid");
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      alertEl.hidden = true;
-      const total = Number(roofTotal.value);
-      const usable = Number(roofUsable.value);
-      if (!roofTotal.value || total < 50) return fail("Enter your total roof space (at least 50 sq ft).", roofTotal);
-      if (!roofUsable.value || usable < 30) return fail("Enter the usable sunlit area (at least 30 sq ft).", roofUsable);
-      if (usable > total) return fail("Usable sunlit area cannot be larger than the total roof space.", roofUsable);
-      if (!bill.value || Number(bill.value) < 100) return fail("Enter your average monthly bill (at least ₹100).", bill);
-      if (!BW.utils.phoneOk(phone.value)) return fail("Enter a 10-digit Indian mobile number starting with 6–9.", phone);
-      if (checkDate()) return date.focus();
-      try {
-        const saved = BW.store.save("Surveys", {
-          Customer: user.name,
-          customerEmail: user.email,
-          City: city.value,
-          Phone: phone.value.trim(),
-          "Roof type": roofType.value,
-          "Roof Direction": direction.value,
-          "Total roof space (sq ft)": total,
-          "Usable sunlit area (sq ft)": usable,
-          // ~100 sq ft per kW, capped at the 1–5 kW residential range.
-          "Capacity (kW)": Math.max(1, Math.min(5, Math.floor(usable / 100))),
-          "Monthly Bill (₹)": Number(bill.value),
-          "Survey date": date.value,
-          Notes: notes.value.trim(),
-          status: "Scheduled",
-          ...(source ? { resubmittedFrom: source.id } : {}),
-          Surveyor: "Sneha Rao",
-          "Grid suitability": "Suitable",
-          "Tilt (0–90°)": 22,
-          "Cable Distance (m)": 15,
-        });
-        const received = "We’ve received your survey. After review, we’ll send your quotation to your registered email address.";
-        BW.ui.toast(received);
-        history.replaceState(null, "", location.pathname);
-        renderSurveys();
-        // Keep the confirmation visible after the toast fades.
-        const ok = el("div", "cx-success");
-        ok.setAttribute("role", "status");
-        ok.append(BW.ui.icon("circle-check", 20), el("p", "", `${received} (Reference: ${saved.id}, survey on ${BW.utils.formatDate(saved["Survey date"])})`));
-        document.querySelector("#page-content .page-heading")?.after(ok);
-      } catch (err) {
-        fail(err.message);
-      }
-    };
-
-    const list = panel("Your surveys", `${d.surveys.length} on record`);
-    if (!d.surveys.length) list.append(el("p", "empty", "No surveys yet. Submit the form above to book your rooftop assessment."));
-    const grid2 = el("div", "cx-survey-grid");
-    for (const s of d.surveys) {
-      const card = el("article", "cx-survey");
-      const top = el("div", "cx-survey-top");
-      top.append(el("strong", "", s.id), BW.ui.statusPill(s.status));
-      const meta = el("dl", "cx-meta");
-      for (const [k, v] of [
-        ["Date", BW.utils.formatDate(s["Survey date"])],
-        ["City", s.City],
-        ["Roof", `${s["Roof type"]} · ${s["Roof Direction"] || "—"}`],
-        ["Surveyor", s.Surveyor || "To be assigned"],
-      ]) {
-        const row = el("div");
-        row.append(el("dt", "", k), el("dd", "", v));
-        meta.append(row);
-      }
-      const note =
-        s.status === "Approved"
-          ? "Your roof is approved. A quotation is on its way."
-          : s.status === "Rejected"
-            ? `Not feasible: ${s.rejectionReason || "see engineer notes"}`
-            : "Our engineer will visit on the scheduled date.";
-      card.append(top, meta, el("p", `cx-survey-note ${s.status === "Rejected" ? "is-bad" : ""}`, note));
-      grid2.append(card);
-    }
-    list.append(grid2);
-    root.append(formPanel, list);
-    if (location.hash === "#new" || source)
-      requestAnimationFrame(() => {
-        formPanel.scrollIntoView({ block: "start" });
-        roofTotal.focus();
-      });
-  }
-
-  /* Local demo quote math (used by the My Solar Home summary card). */
-  function quoteLines(q) {
-    const kit = q.kit || {};
-    const calc = BW.catalog.calculateKit({
-      capacityKw: q["Capacity (kW)"],
-      systemType: q["System type"],
-      subsidyScheme: q["Subsidy scheme"],
-      ...kit,
-    });
-    const t = q.totals || {};
-    const rate = kit.installRatePerKw || kit.installRate || 4500;
-    const equipment = calc.bomLines.reduce((sum, l) => sum + l.total, 0);
-    const install = Number(q["Capacity (kW)"]) * rate;
-    const gstRate = t.gstRate ?? null;
-    const taxes = gstRate != null
-      ? Math.round(((equipment + install) * gstRate) / 100)
-      : Math.round(calc.totalGst);
-    const gross = equipment + install + taxes;
-    const subsidy = BW.catalog.subsidyFor(q["Capacity (kW)"], q["Subsidy scheme"], q["System type"]);
-    return {
-      lines: calc.bomLines,
-      rate,
-      equipment,
-      install,
-      taxes,
-      gstLabel: gstRate != null ? `GST (${gstRate}% composite)` : "GST (12% composite)",
-      gross,
-      subsidy,
-      net: Math.max(0, gross - subsidy),
-    };
   }
 
   /* ======================= 3. My Quotations (hosted API) ======================= */
@@ -918,6 +577,294 @@ window.BW.controllers = window.BW.controllers || {};
       modal: { ondismiss: () => renderPayment(container, quoteId) },
     });
     rzp.open();
+  }
+
+  /* ============ Server-backed request tracking (My Solar Home + Site Surveys) ============ */
+  // States from the hosted workflow: submitted → (assigned) → technical_approved →
+  // under_review (inventory/pricing) → issued → accepted | declined, plus
+  // correction (survey returned to the technician with a reason).
+  const STATE_RANK = {
+    submitted: 1, assigned: 1, correction: 1,
+    technical_approved: 2, under_review: 2, changes_requested: 2, draft: 2, priced: 2,
+    issued: 3, accepted: 4, declined: 4,
+  };
+
+  /** Latest request (list is ascending by request number) with detail + quote + payment. */
+  async function latestRequest() {
+    const items = await listEnquiries();
+    if (!items.length) return { items, latest: null };
+    const latest = items[items.length - 1];
+    const detail = await BW.auth.request(`/v1/enquiries/${encodeURIComponent(latest.id)}`).catch(() => null);
+    const ref = detail ? quoteRefs(detail).slice(-1)[0] : null;
+    const quote = ref ? await BW.auth.request(`/v1/quotes/${encodeURIComponent(ref.id)}`).catch(() => null) : null;
+    const payment =
+      quote?.state === "accepted"
+        ? await BW.auth.request(`/v1/quotes/${encodeURIComponent(quote.id)}/payment`).catch(() => null)
+        : null;
+    return { items, latest, detail, quote, payment };
+  }
+
+  /** Reason attached to the most recent "return"/correction history entry. */
+  function returnReason(detail) {
+    const hist = (detail?.history || []).slice().reverse();
+    const h = hist.find((x) => /return|correction/i.test(x.action || x.state || "") && (x.reason || x.note));
+    return h?.reason || h?.note || detail?.return_reason || null;
+  }
+
+  function serverJourney({ latest, detail, quote, payment }) {
+    const state = detail?.state || latest?.state;
+    const rank = STATE_RANK[state] || 0;
+    const steps = [];
+    let blocked = false;
+    const next = (label, done, pending) => {
+      if (blocked) return steps.push({ label, state: "todo", hint: "Upcoming" });
+      if (done) return steps.push({ label, state: "done", hint: "Completed" });
+      blocked = true;
+      steps.push({ label: pending.label || label, state: pending.state || "active", hint: pending.hint });
+    };
+    next("Request Submitted", !!latest, { hint: "Pending submission" });
+    next(
+      "Site Survey & Design",
+      rank >= 2 && state !== "correction",
+      state === "correction"
+        ? { label: "Survey Returned", state: "rejected", hint: "Engineer revisit needed" }
+        : { hint: state === "assigned" ? "Engineer assigned" : "Awaiting engineer visit" },
+    );
+    next(
+      "Quotation Ready",
+      ["issued", "accepted"].includes(state) || ["issued", "accepted"].includes(quote?.state),
+      state === "declined"
+        ? { label: "Quotation Declined", state: "rejected", hint: "You declined this quotation" }
+        : state === "changes_requested"
+          ? { label: "Quotation Under Revision", state: "warn", hint: "Changes requested" }
+          : { hint: "Stock check & pricing" },
+    );
+    next("Order & Payment", payment?.state === "confirmed", {
+      label: quote?.state === "accepted" ? "Order & Payment" : "Accept Quotation",
+      state: payment?.state === "checkout_unavailable" ? "warn" : "active",
+      hint:
+        quote?.state !== "accepted"
+          ? "Review and accept your quotation"
+          : { checkout_available: "Choose advance or full payment", checkout_unavailable: "Checkout unavailable", payment_pending: "Payment pending", under_review: "Payment under review" }[payment?.state] || "Payment",
+    });
+    next("Installation", false, { hint: payment?.order?.work_order_id ? `Work order ${String(payment.order.work_order_id).slice(0, 8)}` : "Scheduling crew" });
+    const idx = steps.findIndex((s) => s.state !== "done");
+    const step = steps[idx];
+    const reason = state === "correction" ? returnReason(detail) : null;
+    const stage = !latest
+      ? { label: "Awaiting Request", tone: "blue", detail: "Submit a site request to begin." }
+      : {
+          label: step.label,
+          tone: { rejected: "red", warn: "amber" }[step.state] || "teal",
+          detail: reason ? `Reason: ${reason}` : `${latest.reference} · ${step.hint}`,
+        };
+    return { steps, current: idx === -1 ? steps.length : idx, stage, reason };
+  }
+
+  function correctionBanner(latest, reason) {
+    const box = el("div", "cx-alert");
+    box.setAttribute("role", "alert");
+    const text = el("div");
+    text.append(
+      el("strong", "", `${latest.reference}: our engineer needs to revisit your site`),
+      el("p", "", `Reason: ${reason || "See request history for details."}`),
+      el("small", "", "No action is needed from you. The engineer will submit a corrected survey."),
+    );
+    box.append(BW.ui.icon("alert-triangle", 22), text, BW.ui.button("View request", () => (location.href = quoteUrl(latest.id)), "primary-btn", "file-text"));
+    return box;
+  }
+
+  /* ======================= 1. My Solar Home (server) ======================= */
+  async function renderHome() {
+    const user = BW.auth.current();
+    const root = page(
+      `Welcome back, ${user.name}`,
+      "Here's where your rooftop solar request stands today.",
+      BW.ui.button("New Site Request", () => (location.href = "customer-surveys.html#new"), "primary-btn", "plus"),
+    );
+    const loading = el("p", "muted", "Loading your requests…");
+    root.append(loading);
+    let data;
+    try {
+      data = await latestRequest();
+    } catch (err) {
+      loading.remove();
+      errorPanel(root, apiError(err) || "Your requests aren't available right now.", () => renderHome());
+      return;
+    }
+    loading.remove();
+    const j = serverJourney(data);
+    const { latest, detail, quote, payment, items } = data;
+    if (detail?.state === "correction") root.append(correctionBanner(latest, j.reason));
+
+    const track = panel("Your solar journey", j.current >= 5 ? "All steps complete" : `Step ${j.current + 1} of 5`);
+    track.append(stepper(j.steps));
+
+    const cards = el("div", "cx-cards");
+    cards.append(
+      summaryCard(
+        "Your request",
+        latest ? latest.reference : "None yet",
+        latest ? `${human(detail?.state || latest.state)} · ${detail?.site || "Site request"}` : "Submit a site request to get a quotation",
+        "file-text",
+        "amber",
+      ),
+      summaryCard("Current stage", j.stage.label, j.stage.detail, "activity", "teal", ["red", "amber"].includes(j.stage.tone) ? j.stage.tone : null),
+      summaryCard(
+        "Quotation",
+        quote ? paise(quote.total_paise) : "—",
+        quote ? `Advance ${paise(quote.advance_paise)} · ${human(quote.state)}` : "Issued after survey, stock check and pricing",
+        "shield-check",
+        "green",
+      ),
+    );
+
+    const nextLinks = el("div", "cx-next");
+    for (const [label, href, glyph, meta] of [
+      ["Site Requests", "customer-surveys.html", "clipboard-list", `${items.length} submitted`],
+      ["My Quotations", "customer-quotations.html", "file-text", quote ? human(quote.state) : "None issued yet"],
+      ["Installation & Warranty", "customer-warranty.html", "shield-check", payment?.order ? "Order confirmed" : "After payment"],
+    ]) {
+      const a = el("a", "cx-link");
+      a.href = href;
+      a.append(BW.ui.icon(glyph), el("span", "", label), el("small", "", meta), BW.ui.icon("chevron-right", 16));
+      nextLinks.append(a);
+    }
+    root.append(track, cards, nextLinks);
+  }
+
+  /* ======================= 2. Site Requests (server intake) ======================= */
+  async function renderSurveys() {
+    const user = BW.auth.current();
+    const root = page("Site Requests", "Request a rooftop assessment and follow its progress.");
+
+    const formPanel = panel("Request a site survey");
+    formPanel.id = "new";
+    const form = el("form", "cx-form");
+    form.noValidate = true;
+    const grid = el("div", "form-grid");
+    const alertEl = el("p", "form-error");
+    alertEl.setAttribute("role", "alert");
+    alertEl.hidden = true;
+    const f = (o) => BW.ui.field(grid, { required: true, ...o });
+    const site = f({ name: "site", label: "Site address", placeholder: "House / building, area, city" });
+    site.closest("label").classList.add("span-2");
+    const contact = f({ name: "contact_email", label: "Contact email", type: "email", value: user.email || "" });
+    const system = f({ name: "system", label: "System type", options: ["On-grid rooftop installation", "Off-grid rooftop installation (with batteries)", "Hybrid rooftop installation"], value: "On-grid rooftop installation" });
+    const roof = f({ name: "roof_space_m2", label: "Usable roof space (m²)", type: "number", min: 1, step: 1, placeholder: "e.g. 40" });
+    const bill = f({ name: "bill", label: "Average monthly bill (₹)", type: "number", min: 1, step: 1, placeholder: "e.g. 4500" });
+    const gridType = f({ name: "grid_details", label: "Electricity connection", options: ["Single phase", "Three phase"], value: "Single phase" });
+    const notes = f({ name: "notes", label: "Anything else we should know?", type: "textarea", required: false, placeholder: "Terrace access, shading, floor…" });
+    notes.closest("label").classList.add("span-2");
+
+    const submit = BW.ui.button("Submit request", null, "primary-btn", "clipboard-list");
+    submit.type = "submit";
+    const actions = el("div", "modal-actions");
+    actions.append(submit);
+    form.append(grid, alertEl, actions);
+    formPanel.append(form);
+
+    const ACTION = "intake";
+    // One key per submission; editing the form after a failed attempt starts a new action.
+    form.oninput = (e) => {
+      e.target.classList?.remove("field-invalid");
+      BW.auth.clearIdempotencyKey(ACTION);
+    };
+    const fail = (msg, input) => {
+      alertEl.textContent = msg;
+      alertEl.hidden = false;
+      input?.classList.add("field-invalid");
+      input?.focus();
+    };
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      alertEl.hidden = true;
+      if (site.value.trim().length < 5) return fail("Enter the site address.", site);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.value.trim())) return fail("Enter a valid contact email.", contact);
+      const m2 = Number(roof.value);
+      if (!roof.value || !Number.isFinite(m2) || m2 <= 0) return fail("Enter the usable roof space in square metres.", roof);
+      const rupees = Number(bill.value);
+      if (!bill.value || !Number.isFinite(rupees) || rupees <= 0) return fail("Enter your average monthly bill.", bill);
+      const body = {
+        site: site.value.trim(),
+        contact_email: contact.value.trim(),
+        requirements: [system.value, notes.value.trim()].filter(Boolean).join(". "),
+        roof_space_m2: Math.round(m2),
+        monthly_bill_paise: Math.round(rupees * 100),
+        grid_details: gridType.value,
+      };
+      submit.disabled = true;
+      try {
+        const res = await BW.auth.request("/v1/enquiries", {
+          method: "POST",
+          body,
+          idempotencyKey: BW.auth.idempotencyKey(ACTION),
+        });
+        BW.auth.clearIdempotencyKey(ACTION);
+        const ack = res.acknowledgement || "We’ve received your request. We’ll email your quotation once it’s approved.";
+        BW.ui.toast(ack);
+        history.replaceState(null, "", location.pathname);
+        await renderSurveys();
+        const ok = el("div", "cx-success");
+        ok.setAttribute("role", "status");
+        ok.append(BW.ui.icon("circle-check", 20), el("p", "", `${ack} (Reference: ${res.reference || res.id})`));
+        document.querySelector("#page-content .page-heading")?.after(ok);
+      } catch (err) {
+        // 503 / network: keep the key so a retry is the same request.
+        if (err.status && err.status !== 503) BW.auth.clearIdempotencyKey(ACTION);
+        fail(
+          err.status === 400
+            ? `Some details were rejected (${err.code}). Please check the form.`
+            : apiError(err) || "You can't submit a request from this account.",
+        );
+      } finally {
+        submit.disabled = false;
+      }
+    };
+
+    const list = panel("Your requests");
+    root.append(formPanel, list);
+    try {
+      const items = await listEnquiries();
+      list.querySelector(".panel-heading").append(el("span", "muted", `${items.length} on record`));
+      const latest = items[items.length - 1];
+      if (latest?.state === "correction") {
+        const d = await BW.auth.request(`/v1/enquiries/${encodeURIComponent(latest.id)}`).catch(() => null);
+        root.insertBefore(correctionBanner(latest, returnReason(d)), formPanel);
+      }
+      if (!items.length) list.append(el("p", "empty", "No requests yet. Submit the form above to book your rooftop assessment."));
+      const cards = el("div", "cx-survey-grid");
+      for (const e of items.slice().reverse()) {
+        const card = el("article", "cx-survey");
+        const top = el("div", "cx-survey-top");
+        top.append(el("strong", "", e.reference || e.id), BW.ui.statusPill(human(e.state)));
+        const meta = el("dl", "cx-meta");
+        for (const [k, v] of [["Submitted", e.created_at ? BW.utils.formatDate(e.created_at) : ""], ["Revision", e.revision]]) {
+          if (v === "" || v == null) continue;
+          const r = el("div");
+          r.append(el("dt", "", k), el("dd", "", String(v)));
+          meta.append(r);
+        }
+        const note = {
+          submitted: "Received. An engineer will be assigned.",
+          assigned: "An engineer has been assigned to visit.",
+          correction: "Returned for a corrected survey.",
+          technical_approved: "Survey approved. Checking stock.",
+          draft: "Stock confirmed. Your quotation is being priced.",
+          priced: "Your quotation is being finalised.",
+          under_review: "Stock check and pricing in progress.",
+          issued: "Your quotation is ready.",
+          accepted: "Quotation accepted.",
+          declined: "Quotation declined.",
+        }[e.state] || human(e.state);
+        card.append(top, meta, el("p", `cx-survey-note ${e.state === "correction" ? "is-bad" : ""}`, note), BW.ui.button("Open", () => (location.href = quoteUrl(e.id)), "secondary-btn", "file-text"));
+        cards.append(card);
+      }
+      list.append(cards);
+    } catch (err) {
+      list.append(el("p", "form-error", apiError(err) || "Your requests aren't available right now."));
+    }
+    if (location.hash === "#new") requestAnimationFrame(() => site.focus());
   }
 
   /* ================== 4. Installation & Warranty ================== */

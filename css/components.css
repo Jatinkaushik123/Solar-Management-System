@@ -2623,3 +2623,38 @@ input.field-invalid {
   border-radius: 9px;
   padding: 10px 12px;
 }
+
+/* Hosted staff workflow panel (above the page's own content) */
+.live-content {
+  padding-bottom: 0;
+}
+.live-panel {
+  padding-bottom: 20px;
+}
+.live-panel > .live-body {
+  margin: 0 20px;
+}
+.live-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.live-card .cx-quote-actions {
+  margin-top: 4px;
+}
+.live-out:empty {
+  display: none;
+}
+.equipment-lines {
+  display: grid;
+  gap: 8px;
+}
+.equipment-rows {
+  display: grid;
+  gap: 6px;
+}
+.equipment-row {
+  grid-template-columns: 1fr 90px auto;
+  align-items: end;
+  margin: 0;
+}

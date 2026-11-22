@@ -233,6 +233,45 @@ window.BW = window.BW || {};
     return location.pathname.includes("/pages/") ? "../index.html" : "index.html";
   }
 
+  /* ---------- Deep links survive sign-in ----------
+     A signed-out visit to e.g. pages/customer-quotations.html?quote=<uuid> is sent
+     to the login page with ?next=<that path>; the target is also kept in
+     sessionStorage (bw_post_login_redirect). After sign-in the user lands there. */
+  const REDIRECT_KEY = "bw_post_login_redirect";
+  const SAFE_TARGET = /^pages\/[a-z0-9-]+\.html(\?[^#\s]*)?$/i;
+
+  function currentTarget() {
+    const m = location.pathname.match(/\/pages\/([a-z0-9-]+\.html)$/i);
+    return m ? `pages/${m[1]}${location.search}` : null;
+  }
+
+  /** Go to the login page, remembering where the user was headed. */
+  function sendToLogin() {
+    const target = currentTarget();
+    let url = loginUrl();
+    if (target) {
+      getStorage()?.setItem(REDIRECT_KEY, target);
+      url += "?next=" + encodeURIComponent(target);
+    }
+    location.replace(url);
+  }
+
+  /**
+   * After sign-in: the saved target (from ?next= or sessionStorage), if it is a
+   * same-site app page this role may open. Always clears the saved target.
+   * Ownership (403/404) is still enforced by the API on the target page.
+   */
+  function takeRedirect(user) {
+    const fromQuery = new URLSearchParams(location.search).get("next");
+    const saved = getStorage()?.getItem(REDIRECT_KEY);
+    getStorage()?.removeItem(REDIRECT_KEY);
+    const target = fromQuery || saved;
+    if (!target || !SAFE_TARGET.test(target) || !user) return null;
+    const isCustomerPage = /^pages\/customer-/i.test(target);
+    if ((user.role === "customer") !== isCustomerPage) return null; // wrong portal's page
+    return target;
+  }
+
   async function logout() {
     const sess = readSession();
     writeSession(null);
@@ -282,7 +321,7 @@ window.BW = window.BW || {};
     let sess = await validSession().catch(() => null);
     if (!sess) {
       writeSession(null);
-      location.replace(loginUrl());
+      sendToLogin();
       throw Object.assign(new Error("not_signed_in"), { status: 401, code: "not_signed_in" });
     }
     const send = (token) => request(API_BASE + path, { method, token, body, idempotencyKey });
@@ -296,7 +335,7 @@ window.BW = window.BW || {};
       } catch (retryErr) {
         if (retryErr.status === 401 || retryErr === err) {
           writeSession(null);
-          location.replace(loginUrl());
+          sendToLogin();
         }
         throw retryErr;
       }
@@ -346,7 +385,7 @@ window.BW = window.BW || {};
     const inPages = location.pathname.includes("/pages/");
 
     if (!user) {
-      location.replace(loginUrl());
+      sendToLogin();
       return false;
     }
 
@@ -372,6 +411,7 @@ window.BW = window.BW || {};
     signupCustomer,
     logout,
     request: apiRequest,
+    takeRedirect,
     idempotencyKey,
     clearIdempotencyKey,
     canWrite,

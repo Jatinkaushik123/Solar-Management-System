@@ -7,10 +7,12 @@
 (() => {
   "use strict";
 
-  // Already signed in: go to this user's landing page.
+  const destination = (user) => BW.auth.takeRedirect(user) || `pages/${user.defaultLanding || "dashboard.html"}`;
+
+  // Already signed in: go to the saved deep link, or this user's landing page.
   const currentUser = BW.auth.current();
   if (currentUser) {
-    location.replace(`pages/${currentUser.defaultLanding || "dashboard.html"}`);
+    location.replace(destination(currentUser));
     return;
   }
 
@@ -49,7 +51,8 @@
   }
   tabCustomer?.addEventListener("click", () => setPortal("customer"));
   tabStaff?.addEventListener("click", () => setPortal("staff"));
-  setPortal("customer");
+  const nextParam = new URLSearchParams(location.search).get("next") || "";
+  setPortal(nextParam && !/^pages\/customer-/i.test(nextParam) ? "staff" : "customer");
 
   function show(el, message) {
     el.textContent = message;
@@ -103,7 +106,7 @@
     try {
       const user = await BW.auth.login(portal, emailInput.value, passwordInput.value);
       passwordInput.value = "";
-      location.assign(`pages/${user.defaultLanding || "dashboard.html"}`);
+      location.assign(destination(user));
     } catch (err) {
       show(loginError, signInMessage(err));
       submitBtn.disabled = false;
