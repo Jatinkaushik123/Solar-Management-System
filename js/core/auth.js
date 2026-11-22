@@ -286,7 +286,24 @@ window.BW = window.BW || {};
     location.href = loginUrl();
   }
 
-  async function refreshSession(sess) {
+  // Single-flight refresh: parallel requests near expiry share one refresh call,
+  // because Supabase rotates refresh tokens and reusing an old one can revoke the session.
+  let refreshing = null;
+  function refreshSession(sess) {
+    if (!refreshing) {
+      refreshing = doRefresh(sess).finally(() => {
+        refreshing = null;
+      });
+    }
+    return refreshing;
+  }
+
+  async function doRefresh(sess) {
+    // Another tab may already have refreshed: use the newest stored token.
+    const latest = readSession();
+    if (latest?.refresh_token && latest.refresh_token !== sess.refresh_token && latest.expires_at - Date.now() / 1000 > REFRESH_MARGIN_S) {
+      return latest;
+    }
     const { SUPABASE_URL, request } = await client();
     const data = await request(SUPABASE_URL + "/auth/v1/token?grant_type=refresh_token", {
       method: "POST",
@@ -340,6 +357,53 @@ window.BW = window.BW || {};
         throw retryErr;
       }
     }
+  }
+
+  /** Authorised raw fetch under API_BASE (e.g. CSV downloads). Returns the Response. */
+  async function apiFetch(path) {
+    const { API_BASE, PUBLISHABLE_KEY } = await client();
+    const sess = await validSession();
+    const res = await fetch(API_BASE + path, {
+      headers: { apikey: PUBLISHABLE_KEY, Authorization: "Bearer " + sess.access_token },
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw Object.assign(new Error(data?.error?.code || "request_failed"), { status: res.status, code: data?.error?.code });
+    }
+    return res;
+  }
+
+  /**
+   * Private Supabase Storage with the signed-in session (installation evidence).
+   * upload: write-once object (x-upsert false). download: returns a Blob.
+   */
+  async function storageUpload(bucket, path, file) {
+    const { SUPABASE_URL, PUBLISHABLE_KEY } = await client();
+    const sess = await validSession();
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/${bucket}/${path}`, {
+      method: "POST",
+      headers: {
+        apikey: PUBLISHABLE_KEY,
+        Authorization: "Bearer " + sess.access_token,
+        "Content-Type": file.type,
+        "x-upsert": "false",
+      },
+      body: file,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      throw Object.assign(new Error(data?.error || data?.message || "upload_failed"), { status: res.status, code: data?.error || "upload_failed" });
+    }
+    return path;
+  }
+  async function storageDownload(bucket, path) {
+    const { SUPABASE_URL, PUBLISHABLE_KEY } = await client();
+    const sess = await validSession();
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/authenticated/${bucket}/${path}`, {
+      headers: { apikey: PUBLISHABLE_KEY, Authorization: "Bearer " + sess.access_token },
+    });
+    if (!res.ok) throw Object.assign(new Error("download_failed"), { status: res.status });
+    return res.blob();
   }
 
   /**
@@ -411,6 +475,9 @@ window.BW = window.BW || {};
     signupCustomer,
     logout,
     request: apiRequest,
+    fetchRaw: apiFetch,
+    storageUpload,
+    storageDownload,
     takeRedirect,
     idempotencyKey,
     clearIdempotencyKey,

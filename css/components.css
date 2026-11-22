@@ -2658,3 +2658,40 @@ input.field-invalid {
   align-items: end;
   margin: 0;
 }
+
+/* Installation evidence thumbnails (private, fetched with the session) */
+.evidence-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+.evidence-photos img {
+  width: 96px;
+  height: 72px;
+  object-fit: cover;
+  margin: 0;
+}
+#live-ops .filters input[type="date"] {
+  min-height: 36px;
+  padding: 0 8px;
+  color: #e5edf8;
+  background: rgba(10, 17, 30, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 7px;
+}
+
+/* Local demo content under a live panel is labelled as prototype */
+#live-workflow ~ #page-content::before,
+#live-ops ~ #page-content::before {
+  content: "Prototype · local demo data below — not from the live API";
+  display: block;
+  margin-bottom: 16px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px dashed rgba(245, 158, 11, 0.4);
+}

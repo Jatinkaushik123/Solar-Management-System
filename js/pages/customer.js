@@ -1,6 +1,6 @@
 /**
- * Bijli Wala SIMS — Customer Experience ("My Solar")
- * Four dedicated customer views sharing one data layer:
+ * Bijli Wala SIMS — Customer Experience ("My Solar"), hosted Supabase API
+ * Four dedicated customer views, all reading and writing the live API:
  *   My Solar Home · Site Surveys · My Quotations · Installation & Warranty
  * Each page registers its own controller keyed by <body data-page>.
  */
@@ -11,40 +11,6 @@ window.BW.controllers = window.BW.controllers || {};
   "use strict";
 
   const el = (...a) => BW.ui.el(...a);
-  const inr = (n) => BW.utils.formatINR(n);
-  const PROJECT_STAGES = [
-    "Planning",
-    "Site assessment",
-    "Design approval",
-    "Procurement",
-    "Installation",
-    "Commissioning",
-  ];
-
-  /* ---------- Data scoped strictly to the signed-in customer ---------- */
-  // Records carrying a customerEmail match on email only. Older records with no
-  // email fall back to an exact name match (never a partial one), so one
-  // customer can never see another customer's records.
-  function mine(user) {
-    const email = String(user.email || "").toLowerCase();
-    const names = [user.name, `${user.name} Residence`];
-    const owns = (row, nameKey) =>
-      row.customerEmail
-        ? String(row.customerEmail).toLowerCase() === email
-        : names.includes(row[nameKey]);
-    const newestFirst = (rows) =>
-      rows.sort(
-        (a, b) =>
-          String(b.created || "").localeCompare(String(a.created || "")) ||
-          String(b.id).localeCompare(String(a.id), undefined, { numeric: true }),
-      );
-    return {
-      surveys: newestFirst(BW.store.get("Surveys").filter((r) => owns(r, "Customer"))),
-      quotes: newestFirst(BW.store.get("Quotations").filter((r) => owns(r, "Customer"))),
-      projects: newestFirst(BW.store.get("Projects").filter((r) => owns(r, "Project name"))),
-      warranties: newestFirst(BW.store.get("Warranty").filter((r) => owns(r, "Customer"))),
-    };
-  }
 
   function stepper(steps) {
     const ol = el("ol", "journey-stepper");
@@ -179,7 +145,7 @@ window.BW.controllers = window.BW.controllers || {};
   async function renderQuotations() {
     const root = page("My Quotations", "Your solar requests and the quotations issued for them.");
     const params = new URLSearchParams(location.search);
-    const quoteId = params.get("quote");
+    const quoteId = params.get("quote") || params.get("quote_id");
     const enquiryId = params.get("enquiry");
     const loading = el("p", "muted", "Loading…");
     root.append(loading);
@@ -458,6 +424,14 @@ window.BW.controllers = window.BW.controllers || {};
       }
     } else if (state === "payment_pending" || state === "under_review") {
       status.append(el("p", "cx-fine", state === "under_review" ? "We're confirming your payment with the bank. This page refreshes the status on request." : "Complete the open payment, or refresh to check its status."));
+      const openChoice = s.attempt && s.attempt.state !== "expired" ? s.attempt.choice : null;
+      if (state === "payment_pending" && openChoice) {
+        // Re-sending the same choice returns the original attempt and gateway order.
+        actions.append(BW.ui.button(`Resume payment · ${paise(s.attempt.amount_paise ?? amountFor(openChoice))}`, () => startCheckout(container, quoteId, openChoice), "primary-btn"));
+      }
+    }
+    if (s.attempt?.state === "expired") {
+      status.append(el("p", "cx-fine", "Your previous payment window expired (equipment is held for 15 minutes). Choose an option to start a new one."));
     }
     actions.append(BW.ui.button("Refresh status", () => renderPayment(container, quoteId), "secondary-btn"));
 
@@ -489,7 +463,11 @@ window.BW.controllers = window.BW.controllers || {};
         r.append(el("dt", "", k), el("dd", "", v));
         meta.append(r);
       }
-      container.append(el("h3", "detail-title", "Order"), meta);
+      container.append(
+        el("h3", "detail-title", "Order"),
+        meta,
+        BW.ui.button("Track installation & warranty", () => (location.href = `customer-warranty.html?order=${encodeURIComponent(s.order.id)}`), "secondary-btn", "shield-check"),
+      );
     }
   }
 
@@ -508,7 +486,9 @@ window.BW.controllers = window.BW.controllers || {};
       const definitive = err.status && !(err.status === 503 && err.code === "checkout_creation_uncertain");
       if (definitive) BW.auth.clearIdempotencyKey(action);
       const notice =
-        err.code === "stock_shortage"
+        err.code === "open_checkout_exists"
+          ? "A payment for the other option is already open. Resume it, or start again after it expires (15 minutes)."
+          : err.code === "stock_shortage"
           ? "Equipment unavailable. Some items are out of stock right now. Please retry later."
           : err.code === "payment_under_review" || err.code === "checkout_creation_uncertain"
             ? "Under review. We're checking an earlier payment attempt before starting a new one."
@@ -571,7 +551,14 @@ window.BW.controllers = window.BW.controllers || {};
           BW.auth.clearIdempotencyKey(action);
           await renderPayment(container, quoteId, "Payment received. Thank you!");
         } catch (err) {
-          await renderPayment(container, quoteId, `We couldn't verify the payment yet (${err.status || "network"}). Refresh status in a moment.`);
+          if (err.status && err.status !== 503) BW.auth.clearIdempotencyKey(action);
+          await renderPayment(
+            container,
+            quoteId,
+            err.status === 503 || !err.status
+              ? "Payment pending: the gateway hasn't confirmed it yet. Refresh status shortly; verification will be retried safely."
+              : `We couldn't verify the payment (${err.status} · ${err.code}). Refresh status in a moment.`,
+          );
         }
       },
       modal: { ondismiss: () => renderPayment(container, quoteId) },
@@ -867,128 +854,319 @@ window.BW.controllers = window.BW.controllers || {};
     if (location.hash === "#new") requestAnimationFrame(() => site.focus());
   }
 
-  /* ================== 4. Installation & Warranty ================== */
-  function claimModal(w) {
-    const { dialog, body } = BW.ui.modal(`Raise a service claim · ${w["Serial number"]}`, "spotlight");
+  /* ================== 4. Installation & Warranty (hosted API) ================== */
+  // GET /v1/projects, /v1/projects/{order_id}, /v1/installations/{work_order_id}
+  // POST /v1/installations/{id}/signoff · GET /v1/warranties · GET /v1/service/equipment
+  // GET/POST /v1/service-tickets · POST /v1/service-tickets/{id}/confirmation
+
+  /** "expires_on" is the first day OUT of coverage: covered through the day before. */
+  function coveredThrough(expiresOn) {
+    if (!expiresOn) return null;
+    const d = new Date(expiresOn + "T12:00:00");
+    d.setDate(d.getDate() - 1);
+    return BW.utils.formatDate(BW.utils.dateString(d));
+  }
+  const todayIndia = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+
+  async function postAction(action, path, body) {
+    const key = BW.auth.idempotencyKey(action);
+    try {
+      const res = await BW.auth.request(path, { method: "POST", body, idempotencyKey: key });
+      BW.auth.clearIdempotencyKey(action);
+      return res;
+    } catch (err) {
+      if (err.status && err.status !== 503) BW.auth.clearIdempotencyKey(action);
+      throw err;
+    }
+  }
+
+  async function reportPhotos(paths, into) {
+    for (const p of (paths || []).slice(0, 10)) {
+      try {
+        const blob = await BW.auth.storageDownload("installation-evidence", p);
+        const img = el("img", "roof-preview");
+        img.alt = "Installation photo";
+        img.src = URL.createObjectURL(blob);
+        into.append(img);
+      } catch {
+        into.append(el("small", "muted", "Photo unavailable"));
+      }
+    }
+  }
+
+  async function renderProject(root, projectSummary) {
+    const orderId = projectSummary.id || projectSummary.order_id;
+    let p;
+    try {
+      p = await BW.auth.request(`/v1/projects/${encodeURIComponent(orderId)}`);
+    } catch (err) {
+      if (err.status === 404) return deniedPanel(root, "Project");
+      return errorPanel(root, apiError(err) || "This project isn't available.", () => renderWarranty());
+    }
+    const pnl = panel(`Installation · ${p.enquiry_reference || p.reference || String(orderId).slice(0, 8)}`, BW.ui.statusPill(human(p.work_state || "")));
+    const workId = p.work_order_id;
+    const meta = el("dl", "cx-meta");
+    for (const [k, v] of [
+      ["Site", p.site],
+      ["Pick list", p.pick_state ? human(p.pick_state) : null],
+      ["Shipment", p.shipment ? `${human(p.shipment.state)}${p.shipment.delivered_at ? " · " + BW.utils.formatDate(p.shipment.delivered_at) : p.shipment.dispatched_at ? " · " + BW.utils.formatDate(p.shipment.dispatched_at) : ""}` : "Not dispatched yet"],
+      ["Work order", workId ? String(workId).slice(0, 8) : null],
+    ]) {
+      if (!v) continue;
+      const r = el("div");
+      r.append(el("dt", "", k), el("dd", "", String(v)));
+      meta.append(r);
+    }
+    pnl.append(meta);
+
+    if (workId) {
+      try {
+        const w = await BW.auth.request(`/v1/installations/${encodeURIComponent(workId)}`);
+        const inst = w.installation || {};
+        const state = w.work_state;
+        const report = inst.report;
+        const signoff = inst.signoff;
+        const box = el("div", "cx-crew");
+        box.append(el("h3", "", "Installation"));
+        box.append(el("p", "cx-fine", {
+          ready_to_schedule: "We're scheduling your installation crew.",
+          scheduled: `Scheduled${w.scheduled_at ? " for " + new Date(w.scheduled_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }) : ""}.`,
+          test_failed: "The generation test didn't pass. Our technician will re-test.",
+          awaiting_signoff: "Installation passed its test. Please review and sign off.",
+          completed: "Installation completed and signed off.",
+        }[state] || human(state)));
+        if (report) {
+          const rm = el("dl", "cx-meta");
+          for (const [k, v] of [
+            ["Generation test", human(report.generation_test)],
+            ["System size", report.system_kw ? `${report.system_kw} kW` : null],
+            ["Work time", report.started_at && report.ended_at ? `${new Date(report.started_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })} – ${new Date(report.ended_at).toLocaleTimeString("en-IN", { timeStyle: "short" })}` : null],
+          ]) {
+            if (!v) continue;
+            const r = el("div");
+            r.append(el("dt", "", k), el("dd", "", v));
+            rm.append(r);
+          }
+          const photos = el("div", "evidence-photos");
+          box.append(rm, photos);
+          reportPhotos(report.photo_paths, photos);
+        }
+        if (signoff) {
+          box.append(el("p", "cx-survey-note", `Signed off ${new Date(signoff.signed_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.`));
+        } else if (state === "awaiting_signoff" && report?.id) {
+          const msg = el("p", "form-error");
+          msg.setAttribute("role", "alert");
+          msg.hidden = true;
+          const btn = BW.ui.button("Accept installation & sign off", async () => {
+            const ok = await BW.ui.reasonModal({
+              title: "Sign off installation",
+              message: "You confirm the installation and the passing test report shown above. Type your full name to sign.",
+              label: "Your full name",
+              confirmLabel: "Sign off",
+            });
+            if (ok === null) return;
+            btn.disabled = true;
+            try {
+              await postAction(`signoff:${workId}:${report.id}`, `/v1/installations/${encodeURIComponent(workId)}/signoff`, { report_id: report.id, accepted: true });
+              BW.ui.toast("Installation signed off. Your warranty is active.");
+              renderWarranty();
+            } catch (err) {
+              btn.disabled = false;
+              msg.textContent = err.status === 409 ? `Can't sign off yet (${err.code}). Refresh to see the latest report.` : apiError(err) || "You can't sign off this installation.";
+              msg.hidden = false;
+            }
+          }, "primary-btn", "check");
+          box.append(btn, msg);
+        }
+        pnl.append(box);
+      } catch (err) {
+        pnl.append(el("p", "cx-fine", err.status === 404 ? "Installation details aren't available yet." : apiError(err) || ""));
+      }
+    }
+    root.append(pnl);
+  }
+
+  function ticketForm(equipment) {
+    const { dialog, body } = BW.ui.modal(`Raise a service claim · ${equipment.serial}`, "spotlight");
     const form = el("form");
     form.noValidate = true;
     const grid = el("div", "form-grid");
-    const alertEl = el("p", "form-error");
-    alertEl.setAttribute("role", "alert");
-    alertEl.hidden = true;
-    const issue = BW.ui.field(grid, { name: "issue", label: "What's wrong?", type: "textarea", required: true, placeholder: "Error code, drop in generation, inverter lights…" });
-    issue.closest("label").classList.add("span-2");
-    const covered = w.status !== "Closed" && String(w["Expiry date"] || "") >= BW.utils.getTodayISO();
+    const msg = el("p", "form-error");
+    msg.setAttribute("role", "alert");
+    msg.hidden = true;
+    const fault = BW.ui.field(grid, { name: "fault", label: "What's wrong?", type: "textarea", required: true, placeholder: "e.g. The inverter shuts off after start-up." });
+    fault.closest("label").classList.add("span-2");
+    const covered = equipment.warranty_state ? equipment.warranty_state === "active" : equipment.expires_on ? equipment.expires_on > todayIndia() : null;
     const submit = BW.ui.button("Submit claim", null, "primary-btn", "wrench");
     submit.type = "submit";
     const actions = el("div", "modal-actions");
     actions.append(BW.ui.button("Cancel", () => dialog.close()), submit);
     form.append(
-      el("p", "form-caption", `${w.Component} · ${covered ? "Under warranty: service is free" : "Warranty expired: service is billable"}`),
-      grid,
-      alertEl,
-      actions,
+      el("p", "form-caption", covered === null ? "Coverage is checked when the claim opens." : covered ? "Under warranty: repairs are free." : "Warranty expired: repairs will be invoiced."),
+      grid, msg, actions,
     );
     body.append(form);
-    form.onsubmit = (e) => {
+    form.onsubmit = async (e) => {
       e.preventDefault();
-      if (issue.value.trim().length < 5) {
-        alertEl.textContent = "Describe the issue in a few words.";
-        alertEl.hidden = false;
-        issue.classList.add("field-invalid");
+      msg.hidden = true;
+      if (fault.value.trim().length < 5) {
+        msg.textContent = "Describe the fault in a few words.";
+        msg.hidden = false;
+        fault.classList.add("field-invalid");
         return;
       }
-      const tickets = w.tickets || [];
-      BW.store.save("Warranty", {
-        ...w,
-        status: "Claim open",
-        tickets: [{ id: `${w.id}-T${tickets.length + 1}`, opened: BW.utils.getTodayISO(), parts: 0, labour: 0, note: issue.value.trim() }, ...tickets],
-        history: [{ date: BW.utils.getTodayISO(), title: "Service claim submitted by customer", detail: issue.value.trim() }, ...(w.history || [])],
-      });
-      dialog.close();
-      BW.ui.toast("Claim submitted. A technician will contact you.");
-      renderWarranty();
+      submit.disabled = true;
+      try {
+        const t = await postAction(`ticket:${equipment.serial}`, "/v1/service-tickets", { serial: equipment.serial, fault: fault.value.trim() });
+        dialog.close();
+        BW.ui.toast(`Service claim ${t.reference || String(t.id).slice(0, 8)} opened`);
+        renderWarranty();
+      } catch (err) {
+        submit.disabled = false;
+        msg.textContent =
+          err.code === "active_ticket_exists"
+            ? "There's already an open claim for this equipment. Track it below."
+            : err.code === "equipment_replaced"
+              ? "This unit was replaced. Raise the claim on its replacement serial."
+              : apiError(err) || "You can't open a claim for this equipment.";
+        msg.hidden = false;
+      }
     };
   }
 
-  function renderWarranty() {
-    const user = BW.auth.current();
-    const d = mine(user);
-    const root = page("Installation & Warranty", "Track your installation and keep your equipment covered.");
-    const project = d.projects[0];
+  async function renderTickets(root) {
+    const pnl = panel("Service claims");
+    root.append(pnl);
+    let tickets;
+    try {
+      tickets = (await BW.auth.request("/v1/service-tickets"))?.items || [];
+    } catch (err) {
+      pnl.append(el("p", "form-error", apiError(err) || "Service claims aren't available."));
+      return;
+    }
+    if (!tickets.length) {
+      pnl.append(el("p", "empty", "No service claims yet."));
+      return;
+    }
+    const grid = el("div", "cx-survey-grid");
+    for (const t of tickets) {
+      const card = el("article", "cx-survey");
+      const top = el("div", "cx-survey-top");
+      top.append(el("strong", "", t.reference || String(t.id).slice(0, 8)), BW.ui.statusPill(human(t.state)));
+      const meta = el("dl", "cx-meta");
+      const add = (k, v) => {
+        if (v == null || v === "") return;
+        const r = el("div");
+        r.append(el("dt", "", k), el("dd", "", String(v)));
+        meta.append(r);
+      };
+      add("Serial", t.serial);
+      add("Opened", t.opened_at || t.created_at ? BW.utils.formatDate(t.opened_at || t.created_at) : "");
+      add("Coverage", t.coverage ? (t.coverage === "covered" ? "Under warranty" : human(t.coverage)) : null);
+      card.append(top, meta);
+      const detailBox = el("div");
+      card.append(detailBox);
+      card.append(BW.ui.button("Details", async () => {
+        detailBox.replaceChildren(el("p", "muted", "Loading…"));
+        try {
+          const d = await BW.auth.request(`/v1/service-tickets/${encodeURIComponent(t.id)}`);
+          detailBox.replaceChildren();
+          const dm = el("dl", "cx-meta");
+          const add2 = (k, v) => {
+            if (v == null || v === "") return;
+            const r = el("div");
+            r.append(el("dt", "", k), el("dd", "", String(v)));
+            dm.append(r);
+          };
+          add2("Fault", d.fault);
+          add2("Diagnosis", d.resolution?.diagnosis);
+          add2("Work done", d.resolution?.work_performed);
+          add2("Customer charge", d.resolution ? paise(d.customer_charge_paise ?? 0) : null);
+          if (d.invoice) {
+            add2("Invoice", `${d.invoice.reference || ""} ${paise(d.invoice.total_paise)}`.trim());
+            add2("Paid", paise(d.invoice.collected_paise ?? 0));
+            add2("Balance due", paise(d.invoice.remaining_paise ?? d.invoice.total_paise - (d.invoice.collected_paise || 0)));
+          }
+          detailBox.append(dm);
+          if (d.state === "awaiting_confirmation" && d.resolution?.id) {
+            const b = BW.ui.button("Confirm repair & close claim", async () => {
+              b.disabled = true;
+              try {
+                await postAction(`confirm:${d.id}:${d.resolution.id}`, `/v1/service-tickets/${encodeURIComponent(d.id)}/confirmation`, { resolution_id: d.resolution.id, accepted: true });
+                BW.ui.toast("Claim closed. Thank you!");
+                renderWarranty();
+              } catch (err) {
+                b.disabled = false;
+                detailBox.append(el("p", "form-error", err.status === 409 ? `Can't confirm yet (${err.code}). Refresh the claim.` : apiError(err) || "You can't confirm this claim."));
+              }
+            }, "primary-btn", "check");
+            detailBox.append(b);
+          }
+        } catch (err) {
+          detailBox.replaceChildren(el("p", "form-error", err.status === 404 ? "This claim isn't available." : apiError(err) || ""));
+        }
+      }, "secondary-btn", "file-text"));
+      grid.append(card);
+    }
+    pnl.append(grid);
+  }
 
-    const timeline = panel("Installation milestones", project ? `${project.id} · ${project.status}` : "");
-    if (!project) {
-      timeline.append(el("p", "empty", "Your installation timeline starts once you accept a quotation."));
-    } else {
-      const idx = project.status === "Completed" ? PROJECT_STAGES.length : PROJECT_STAGES.indexOf(project.stage);
-      const ol = el("ol", "cx-timeline");
-      PROJECT_STAGES.forEach((stage, i) => {
-        const state = i < idx ? "done" : i === idx ? "active" : "todo";
-        const li = el("li", `is-${state}`);
-        const dot = el("span", "cx-dot");
-        if (state === "done") dot.append(BW.ui.icon("check", 12));
-        const txt = el("div");
-        txt.append(el("strong", "", stage), el("small", "", state === "done" ? "Completed" : state === "active" ? "In progress now" : "Upcoming"));
-        li.append(dot, txt);
-        ol.append(li);
-      });
-      const crew = el("aside", "cx-crew");
-      crew.append(el("h3", "", "Your installation team"));
-      for (const [k, v, g] of [
-        ["Crew lead", project["Crew lead"] || "To be assigned", "hard-hat"],
-        ["Lead engineer", project["Lead engineer"] || "To be assigned", "user"],
-        ["Site", `${project["Project name"]}, ${project.City}`, "sun"],
-      ]) {
-        const row = el("div", "cx-crew-row");
-        const t = el("div");
-        t.append(el("small", "", k), el("strong", "", v));
-        row.append(BW.ui.icon(g), t);
-        crew.append(row);
+  async function renderWarranty() {
+    const root = page("Installation & Warranty", "Track your installation, sign off the handover, and keep your equipment covered.");
+    const loading = el("p", "muted", "Loading…");
+    root.append(loading);
+    const focusOrder = new URLSearchParams(location.search).get("order");
+    try {
+      const projects = (await BW.auth.request("/v1/projects"))?.items || [];
+      loading.remove();
+      if (!projects.length) {
+        const p = panel("Installation");
+        p.append(el("p", "empty", "Your installation starts once your advance payment is confirmed."));
+        root.append(p);
       }
-      const wrap = el("div", "cx-install");
-      wrap.append(ol, crew);
-      timeline.append(wrap);
+      const ordered = focusOrder ? projects.filter((p) => (p.id || p.order_id) === focusOrder).concat(projects.filter((p) => (p.id || p.order_id) !== focusOrder)) : projects;
+      for (const pr of ordered.slice(0, 5)) await renderProject(root, pr);
+    } catch (err) {
+      loading.remove();
+      errorPanel(root, apiError(err) || "Your projects aren't available right now.", () => renderWarranty());
+      return;
     }
 
-    const cov = panel("Equipment warranties", `${d.warranties.length} registered`);
-    if (!d.warranties.length) {
-      cov.append(el("p", "empty", "Warranties are registered automatically when your equipment is installed."));
-    } else {
+    // Warranties + equipment (for raising claims)
+    const wp = panel("Equipment warranties");
+    root.append(wp);
+    try {
+      const [warr, equip] = await Promise.all([
+        BW.auth.request("/v1/warranties").then((r) => r?.items || []),
+        BW.auth.request("/v1/service/equipment").then((r) => r?.items || []).catch(() => []),
+      ]);
+      if (!warr.length) wp.append(el("p", "empty", "Warranties start when your equipment is delivered."));
       const grid = el("div", "cx-warranty-grid");
-      const today = BW.utils.getTodayISO();
-      for (const w of d.warranties) {
-        const years = w.coverageYears || Math.max(1, Math.round((new Date(w["Expiry date"]) - new Date(w.coverageStart || today)) / 3.156e10));
-        const kind = /inverter/i.test(w.Component) ? "Inverter" : /panel|module/i.test(w.Component) ? "Panel" : "Equipment";
-        const start = new Date((w.coverageStart || today) + "T00:00:00");
-        const end = new Date(w["Expiry date"] + "T23:59:59");
-        const pct = Math.round(Math.min(1, Math.max(0, (Date.now() - start) / (end - start || 1))) * 100);
-        const active = w.status !== "Closed" && w["Expiry date"] >= today;
+      const today = todayIndia();
+      for (const w of warr) {
+        const active = w.state ? w.state === "active" : w.expires_on > today;
         const card = el("article", `cx-warranty ${active ? "" : "is-expired"}`);
         const top = el("div", "cx-warranty-top");
-        const shield = el("span", "icon-tile green");
+        const shield = el("span", `icon-tile ${active ? "green" : "slate"}`);
         shield.append(BW.ui.icon("shield-check"));
-        top.append(shield, BW.ui.statusPill(w.status));
-        const bar = el("progress");
-        bar.max = 100;
-        bar.value = pct;
-        bar.setAttribute("aria-label", `${pct}% of coverage period used`);
+        top.append(shield, BW.ui.statusPill(active ? "Active" : "Expired"));
+        const years = w.term_months ? (w.term_months % 12 === 0 ? `${w.term_months / 12}-Year` : `${w.term_months}-Month`) : "";
+        const kind = /inverter/i.test(w.item_id) ? "Inverter" : /panel|module/i.test(w.item_id) ? "Panel" : /battery/i.test(w.item_id) ? "Battery" : "Equipment";
         card.append(
           top,
-          el("h3", "", `${years}-Year ${kind} Warranty`),
-          el("p", "cx-warranty-model", w.Component),
-          el("p", "cx-serial", w["Serial number"]),
-          bar,
-          el("small", "", `${active ? "Covered until" : "Expired on"} ${BW.utils.formatDate(w["Expiry date"])}`),
+          el("h3", "", `${years} ${kind} Warranty`.trim()),
+          el("p", "cx-serial", w.serial),
+          el("small", "", active ? `Covered through ${coveredThrough(w.expires_on)}` : `Expired ${BW.utils.formatDate(w.expires_on)}`),
         );
-        if (w.status !== "Closed" && w.status !== "Claim open")
-          card.append(BW.ui.button("Raise service claim", () => claimModal(w), "secondary-btn", "wrench"));
-        else if (w.status === "Claim open") card.append(el("p", "cx-fine", "Claim open: a technician will contact you."));
+        const eq = equip.find((e) => e.serial === w.serial) || { serial: w.serial, expires_on: w.expires_on, warranty_state: w.state };
+        card.append(BW.ui.button("Raise service claim", () => ticketForm(eq), "secondary-btn", "wrench"));
         grid.append(card);
       }
-      cov.append(grid);
+      wp.append(grid);
+    } catch (err) {
+      wp.append(el("p", "form-error", apiError(err) || "Warranties aren't available right now."));
     }
-    root.append(timeline, cov);
+    await renderTickets(root);
   }
 
   Object.assign(BW.controllers, {
