@@ -141,7 +141,104 @@ window.BW = window.BW || {};
   // so pages in /pages/ and the root login page both load it.
   const CLIENT_URL = new URL("./identity-client.mjs", document.currentScript?.src || location.href).href;
   let clientPromise = null;
-  const client = () => (clientPromise ||= import(CLIENT_URL));
+  const loadModule = () => (clientPromise ||= import(CLIENT_URL));
+
+  /* ---------- Backend target: hosted Supabase v10 by default ----------
+     Optional local override (e.g. `supabase start` + `supabase functions serve`):
+       window.__BW_SUPABASE__ = { url: "http://127.0.0.1:54321", publishableKey: "<local key>" }
+     or, persisted for this browser:
+       localStorage.setItem("bw_supabase_override", JSON.stringify({ url, publishableKey }))
+     Only localhost / 127.0.0.1 URLs or the hosted project are accepted, so a stray value
+     can't send tokens to another host. Remove the key to return to the hosted API. */
+  const HOSTED_HOST = "ngutqpqlmzgxpwkamilj.supabase.co";
+  function readOverride() {
+    let o = window.__BW_SUPABASE__;
+    if (!o) {
+      try {
+        o = JSON.parse(localStorage.getItem("bw_supabase_override") || "null");
+      } catch {
+        o = null;
+      }
+    }
+    if (!o || typeof o.url !== "string" || typeof o.publishableKey !== "string" || !o.publishableKey) return null;
+    let u;
+    try {
+      u = new URL(o.url);
+    } catch {
+      return null;
+    }
+    const local = u.protocol === "http:" && ["127.0.0.1", "localhost"].includes(u.hostname);
+    const hosted = u.protocol === "https:" && u.hostname === HOSTED_HOST;
+    if (!local && !hosted) {
+      console.warn("[bijli-wala] Ignoring bw_supabase_override: only localhost or the hosted project are allowed.");
+      return null;
+    }
+    return { url: u.origin, publishableKey: o.publishableKey };
+  }
+
+  /** Same contract as identity-client.mjs request(), with the active project's key. */
+  function makeRequest(publishableKey) {
+    return async function request(url, { method = "GET", token, body, idempotencyKey } = {}) {
+      const headers = { apikey: publishableKey };
+      if (token) headers.Authorization = "Bearer " + token;
+      if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
+      if (body !== undefined) headers["Content-Type"] = "application/json";
+      const response = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const code = data?.error?.code || data?.error_code || "request_failed";
+        throw Object.assign(new Error(code), { status: response.status, code });
+      }
+      return data;
+    };
+  }
+
+  let configPromise = null;
+  /** Active backend: { SUPABASE_URL, PUBLISHABLE_KEY, API_BASE, request, local }. */
+  function client() {
+    return (configPromise ||= loadModule().then((m) => {
+      const o = readOverride();
+      const SUPABASE_URL = o ? o.url : m.SUPABASE_URL;
+      const PUBLISHABLE_KEY = o ? o.publishableKey : m.PUBLISHABLE_KEY;
+      return {
+        SUPABASE_URL,
+        PUBLISHABLE_KEY,
+        API_BASE: SUPABASE_URL + "/functions/v1/api",
+        request: o ? makeRequest(PUBLISHABLE_KEY) : m.request,
+        local: !!o,
+      };
+    }));
+  }
+
+  /** Auth helpers mirroring identity-client.mjs, bound to the active backend. */
+  async function authApi() {
+    const c = await client();
+    const signOut = (token) => c.request(c.SUPABASE_URL + "/auth/v1/logout?scope=local", { method: "POST", token });
+    const getMe = (token, portal) =>
+      c.request(c.API_BASE + "/v1/me" + (portal ? "?portal=" + encodeURIComponent(portal) : ""), { token });
+    return {
+      signOut,
+      getMe,
+      getProfile: (token, id) => c.request(c.API_BASE + "/v1/profiles/" + encodeURIComponent(id), { token }),
+      signUpCustomer: (email, password, displayName = "") =>
+        c.request(c.SUPABASE_URL + "/auth/v1/signup", { method: "POST", body: { email, password, data: { display_name: displayName } } }),
+      async signIn(portal, email, password) {
+        if (portal !== "customer" && portal !== "staff") throw new Error("invalid_portal");
+        const session = await c.request(c.SUPABASE_URL + "/auth/v1/token?grant_type=password", { method: "POST", body: { email, password } });
+        try {
+          return { session, me: await getMe(session.access_token, portal) };
+        } catch (error) {
+          await signOut(session.access_token).catch(() => {});
+          throw error;
+        }
+      },
+    };
+  }
+
+  /** The API's session-failure code. Business 401s (e.g. invalid_signature) are not session failures. */
+  const isSessionFailure = (err) => err?.status === 401 && (err.code === "unauthenticated" || err.code === "not_signed_in");
+  /** Auth refresh rejected (revoked/expired refresh token), as opposed to a network blip. */
+  const isRefreshRejected = (err) => err?.status === 400 || err?.status === 401 || err?.code === "not_signed_in";
 
   /** Backend role -> UI role key. The one place this mapping lives. */
   const BACKEND_TO_UI_ROLE = { technician: "tech" };
@@ -216,7 +313,7 @@ window.BW = window.BW || {};
    * Throws an Error with .status/.code from the API on failure.
    */
   async function login(portal, email, password) {
-    const { signIn, getProfile } = await client();
+    const { signIn, getProfile } = await authApi();
     const { session, me } = await signIn(portal, String(email || "").trim(), password);
     const profile = await getProfile(session.access_token, me.id).catch(() => null);
     writeSession(sessionFromAuth(session, me, profile));
@@ -225,7 +322,7 @@ window.BW = window.BW || {};
 
   /** Customer self-registration. Supabase requires email confirmation before sign-in. */
   async function signupCustomer({ name, email, password }) {
-    const { signUpCustomer } = await client();
+    const { signUpCustomer } = await authApi();
     return signUpCustomer(String(email || "").trim(), password, String(name || "").trim());
   }
 
@@ -277,7 +374,7 @@ window.BW = window.BW || {};
     writeSession(null);
     if (sess?.access_token) {
       try {
-        const { signOut } = await client();
+        const { signOut } = await authApi();
         await signOut(sess.access_token);
       } catch {
         // Already expired or offline: the local session is cleared either way.
@@ -335,22 +432,37 @@ window.BW = window.BW || {};
    */
   async function apiRequest(path, { method = "GET", body, idempotencyKey } = {}) {
     const { API_BASE, request } = await client();
-    let sess = await validSession().catch(() => null);
-    if (!sess) {
-      writeSession(null);
-      sendToLogin();
-      throw Object.assign(new Error("not_signed_in"), { status: 401, code: "not_signed_in" });
+    let sess;
+    try {
+      sess = await validSession();
+    } catch (err) {
+      // Only a rejected/missing session signs the user out; a network error is just thrown.
+      if (isRefreshRejected(err)) {
+        writeSession(null);
+        sendToLogin();
+      }
+      throw err;
     }
     const send = (token) => request(API_BASE + path, { method, token, body, idempotencyKey });
     try {
       return await send(sess.access_token);
     } catch (err) {
-      if (err.status !== 401) throw err;
+      // e.g. 401 invalid_signature from /verify is a business error, not an expired session.
+      if (!isSessionFailure(err)) throw err;
+      let fresh;
       try {
-        sess = await refreshSession(sess);
-        return await send(sess.access_token);
+        fresh = await refreshSession(sess);
+      } catch (refreshErr) {
+        if (isRefreshRejected(refreshErr)) {
+          writeSession(null);
+          sendToLogin();
+        }
+        throw refreshErr;
+      }
+      try {
+        return await send(fresh.access_token);
       } catch (retryErr) {
-        if (retryErr.status === 401 || retryErr === err) {
+        if (isSessionFailure(retryErr)) {
           writeSession(null);
           sendToLogin();
         }
@@ -475,6 +587,7 @@ window.BW = window.BW || {};
     signupCustomer,
     logout,
     request: apiRequest,
+    backend: () => client().then((c) => ({ supabaseUrl: c.SUPABASE_URL, apiBase: c.API_BASE, local: c.local })),
     fetchRaw: apiFetch,
     storageUpload,
     storageDownload,

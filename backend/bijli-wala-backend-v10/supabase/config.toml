@@ -1,0 +1,6 @@
+project_id = "sunpower-solutions"
+
+[functions.api]
+# Every protected route forwards the bearer to PostgREST for signature and expiry
+# verification, followed by a live Auth user/session and private role lookup.
+verify_jwt = false

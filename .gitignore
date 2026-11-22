@@ -1,4 +1,40 @@
+# Dependencies / builds
 node_modules/
 dist/
+
+# Secrets and local credentials (never commit)
 .env*
+*.env
+*.key
+*.pem
+*.crt
+*.pfx
+*credentials*
+*-access-*.txt
+.claude/settings.local.json
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
+backend/**/supabase/.temp/
+backend/**/supabase/.branches/
+
+# Python / tooling
+.venv/
+venv/
+__pycache__/
 *.log
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Temporary integration handoff copies (kept outside the repo in ../handoff-v10/)
+/handoff-v10/
+/START-HERE.md
+/backend-release.md
+/checkout-workflow.md
+/fulfilment-workflow.md
+/quote-workflow.md
+/service-reporting.md
+/identity-client.mjs
