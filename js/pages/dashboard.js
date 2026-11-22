@@ -11,6 +11,71 @@ window.BW.controllers = window.BW.controllers || {};
 
   let selectedRange = "All";
   let selectedPeriod = 6;
+  let liveDashboard;
+
+  async function loadLiveDashboard(root) {
+    root.replaceChildren(BW.ui.el("p", "muted", "Loading the dashboard…"));
+    try {
+      const projects = [];
+      const surveys = [];
+      async function loadProjects() {
+        let after = "";
+        do {
+          const { items } = await BW.auth.request(`/v1/projects${after ? `?after=${encodeURIComponent(after)}` : ""}`);
+          projects.push(...items);
+          after = items.length === 50 ? items.at(-1).id : "";
+        } while (after);
+      }
+      async function loadSurveys() {
+        let after = 0;
+        do {
+          const page = await BW.auth.request(`/v1/enquiries?after=${after}&limit=100`);
+          surveys.push(...page.items);
+          after = page.next_after;
+        } while (after != null);
+      }
+      await Promise.all([loadProjects(), loadSurveys()]);
+
+      const rows = [];
+      // The list does not carry commission dates or nameplate capacity.
+      for (let offset = 0; offset < projects.length; offset += 8) {
+        const details = await Promise.all(projects.slice(offset, offset + 8).map(async (project) => {
+          const detail = await BW.auth.request(`/v1/projects/${encodeURIComponent(project.id)}`);
+          const report = detail.installation?.report;
+          const signoff = detail.installation?.signoff;
+          let capacity = Number(report?.system_kw) || 0;
+          if (!capacity && project.quote_id) {
+            const quote = await BW.auth.request(`/v1/quotes/${encodeURIComponent(project.quote_id)}`);
+            const watts = (quote.lines || []).reduce((total, line) => {
+              const rating = /\b(\d+)\s*w\b/i.exec(line.name || "");
+              return total + (rating ? Number(rating[1]) * Number(line.quantity) : 0);
+            }, 0);
+            capacity = watts / 1000;
+          }
+          return {
+            id: project.id,
+            created: signoff?.signed_at || project.confirmed_at,
+            commissioned: signoff?.signed_at,
+            "Project name": project.enquiry_reference,
+            City: project.site,
+            "Capacity (kW)": capacity,
+            status: signoff ? "Completed" : project.work_state === "ready_to_schedule" ? "Planning" : "In progress",
+            stage: project.work_state,
+          };
+        }));
+        rows.push(...details);
+      }
+      rows.sort((left, right) => right.created.localeCompare(left.created));
+      liveDashboard = { projects: rows, surveys: surveys.map((survey) => ({
+        created: survey.created_at,
+        status: survey.state === "assigned" ? "Scheduled" : survey.state,
+      })) };
+      render();
+    } catch (error) {
+      root.replaceChildren(BW.ui.el("p", "form-error", `Dashboard unavailable (${error.code || "network error"}).`),
+        BW.ui.button("Retry", () => loadLiveDashboard(root), "secondary-btn"));
+    }
+  }
 
   function filterByRange(row, range) {
     if (range === "All") return true;
@@ -175,13 +240,14 @@ window.BW.controllers = window.BW.controllers || {};
       const count = projects.filter(
         (p) =>
           p.status === "Completed" &&
-          String(p.created || "").startsWith(prefix),
+          String(p.commissioned || p.created || "").startsWith(prefix),
       ).length;
       monthsData.push({
         label: d.toLocaleDateString("en-IN", { month: "short" }),
-        count: count || Math.max(1, Math.floor(Math.sin(i + 2) * 4 + 2)), // Realistic demo baseline
+        count,
       });
     }
+    canvas.setAttribute("aria-label", `Monthly installations. ${monthsData.map(({ label, count }) => `${label} ${count}`).join(", ")}`);
 
     const ctx = canvas.getContext("2d");
     if (ctx) {
@@ -421,11 +487,15 @@ window.BW.controllers = window.BW.controllers || {};
   function render() {
     const root = document.querySelector("#page-content");
     if (!root) return;
+    const live = BW.auth.current()?.role === "admin";
+    if (live && !liveDashboard) {
+      loadLiveDashboard(root);
+      return;
+    }
     root.replaceChildren();
 
-    const allProjects = BW.store.get("Projects");
-    const allSurveys = BW.store.get("Surveys");
-    const allQuotes = BW.store.get("Quotations");
+    const allProjects = live ? liveDashboard.projects : BW.store.get("Projects");
+    const allSurveys = live ? liveDashboard.surveys : BW.store.get("Surveys");
 
     const filteredProjects = allProjects.filter((p) => filterByRange(p, selectedRange));
     const filteredSurveys = allSurveys.filter((s) => filterByRange(s, selectedRange));
@@ -486,7 +556,7 @@ window.BW.controllers = window.BW.controllers || {};
       },
       {
         label: "Project Capacity",
-        value: totalCapacityKw,
+        value: Number(totalCapacityKw.toFixed(2)),
         unit: "kW",
         icon: "zap",
         color: "purple",
@@ -529,6 +599,24 @@ window.BW.controllers = window.BW.controllers || {};
     renderBarChart(barPanel, filteredProjects, selectedPeriod);
 
     chartsGrid.append(donutPanel, barPanel);
+
+    if (live) {
+      const recent = BW.ui.el("section", "panel");
+      recent.append(BW.ui.heading("Recent projects", "", BW.ui.button("Open Projects", () => {
+        location.href = "projects.html";
+      }, "secondary-btn")));
+      const list = BW.ui.el("div", "live-list");
+      for (const project of filteredProjects.slice(0, 8)) {
+        const card = BW.ui.el("article", "cx-survey live-card");
+        card.append(BW.ui.el("strong", "", `${project["Project name"]} · ${project.City}`),
+          BW.ui.el("p", "cx-fine", `${project.status} · ${project["Capacity (kW)"] || "—"} kW`));
+        list.append(card);
+      }
+      if (!list.childElementCount) list.append(BW.ui.el("p", "empty", "No projects found for the selected timeframe."));
+      recent.append(list);
+      root.append(headingEl, timeframeBar, kpiCards, chartsGrid, recent);
+      return;
+    }
 
     // Recent Projects Panel with Cost Editor
     const recentPanel = BW.ui.el("section", "panel");

@@ -1,5 +1,16 @@
 project_id = "sunpower-solutions"
 
+[auth]
+minimum_password_length = 6
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
 [functions.api]
 # Every protected route forwards the bearer to PostgREST for signature and expiry
 # verification, followed by a live Auth user/session and private role lookup.

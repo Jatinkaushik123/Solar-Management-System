@@ -255,7 +255,22 @@ window.BW = window.BW || {};
   async function renderFulfilment(host) {
     host.replaceChildren();
     const refresh = () => renderFulfilment(host);
-    const body = panel(host, "Fulfilment · confirmed orders", BW.ui.button("Receive stock", () => receiveModal(refresh), "secondary-btn", "plus"));
+    const catalogue = panel(host, "Warehouse stock", BW.ui.button("Receive stock", () => receiveModal(refresh), "secondary-btn", "plus"));
+    catalogue.append(el("p", "muted", "Loading…"));
+    get("/v1/inventory/items").then((response) => {
+      const rows = el("div", "live-list");
+      for (const item of items(response)) {
+        const card = el("article", "cx-survey live-card");
+        card.append(el("strong", "", item.name), dl([
+          ["SKU", item.item_id], ["Available", item.available], ["On hand", item.on_hand],
+          ["Reserved", item.reserved], ["Unit price", paise(item.suggested_unit_paise)],
+        ]));
+        rows.append(card);
+      }
+      if (!rows.childElementCount) rows.append(el("p", "empty", "No stock items yet."));
+      catalogue.replaceChildren(rows);
+    }).catch((err) => catalogue.replaceChildren(el("p", "form-error", errorText(err))));
+    const body = panel(host, "Fulfilment · confirmed orders");
     body.append(el("p", "muted", "Loading…"));
     let projects;
     try {

@@ -3,17 +3,17 @@ export const SUPABASE_URL = "https://ngutqpqlmzgxpwkamilj.supabase.co";
 export const PUBLISHABLE_KEY = "sb_publishable_EOEwIjuoQkK1wiY8171xvQ_-O5EdpR1";
 export const API_BASE = SUPABASE_URL + "/functions/v1/api";
 
-export async function request(url, { method = "GET", token, body, idempotencyKey } = {}) {
+export async function request(url, { method = "GET", token, body, idempotencyKey, signal } = {}) {
   const headers = { apikey: PUBLISHABLE_KEY };
   if (token) headers.Authorization = "Bearer " + token;
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(url, {
-    method, headers, body: body === undefined ? undefined : JSON.stringify(body),
+    method, headers, signal, body: body === undefined ? undefined : JSON.stringify(body),
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) {
-    const code = data?.error?.code || data?.error_code || "request_failed";
+    const code = data?.error?.code || data?.error_code || (typeof data?.code === "string" ? data.code : "request_failed");
     throw Object.assign(new Error(code), { status: response.status, code });
   }
   return data;

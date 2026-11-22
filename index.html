@@ -8,15 +8,15 @@
     <title>Login | Bijli Wala — Solar Installation Management System</title>
     <link rel="stylesheet" href="css/variables.css" />
     <link rel="stylesheet" href="css/layout.css" />
-    <link rel="stylesheet" href="css/components.css" />
+    <link rel="stylesheet" href="css/components.css?v=3" />
     <link rel="stylesheet" href="css/animations.css" />
     <script defer src="js/core/utils.js"></script>
     <script defer src="js/core/catalog.js"></script>
     <script defer src="js/core/store.js"></script>
-    <script defer src="js/core/auth.js"></script>
+    <script defer src="js/core/auth.js?v=2"></script>
     <script defer src="js/ui/components.js"></script>
-    <script defer src="js/ui/layout.js"></script>
-    <script defer src="js/pages/login.js"></script>
+    <script defer src="js/ui/layout.js?v=2"></script>
+    <script defer src="js/pages/login.js?v=3"></script>
   </head>
   <body data-page="Login">
     <main class="login-page">
@@ -48,8 +48,14 @@
           </button>
         </div>
 
-        <!-- Standard Login Form -->
         <form id="login-form">
+          <div id="customer-name">
+            <label for="display-name">Name <span class="login-hint">(new customers)</span></label>
+            <div class="login-input">
+              <span data-icon="user"></span>
+              <input id="display-name" type="text" autocomplete="name" maxlength="120" placeholder="Your full name" />
+            </div>
+          </div>
           <label for="email">Email</label>
           <div class="login-input">
             <span data-icon="mail"></span>
@@ -83,64 +89,16 @@
           </div>
 
           <p class="login-error" role="alert" hidden></p>
-          <button class="login-submit" type="submit">Sign-In</button>
+          <button class="login-submit" type="submit">Sign In / Quick Register</button>
 
-          <div class="signup-prompt">
-            <span>New User? </span>
-            <button type="button" id="toggle-signup" class="text-link">Sign-up ?</button>
+          <div class="signup-prompt" id="customer-demo">
+            <button type="button" id="fill-customer" class="text-link">Fill Sample Customer</button>
           </div>
-        </form>
-
-        <!-- Customer Self Sign-Up Form (Hidden by default) -->
-        <form id="signup-form" hidden>
-          <div class="signup-grid">
-            <div class="signup-field">
-              <label for="signup-name">Full Name</label>
-              <div class="login-input">
-              <span data-icon="user"></span>
-              <input
-              id="signup-name"
-              required
-              type="text"
-              autocomplete="name"
-              placeholder="e.g. Ramesh Patel"
-              />
-              </div>
-            </div>
-            <div class="signup-field">
-              <label for="signup-email">Email Address</label>
-              <div class="login-input">
-              <span data-icon="mail"></span>
-              <input
-              id="signup-email"
-              required
-              type="email"
-              autocomplete="email"
-              placeholder="ramesh@gmail.com"
-              />
-              </div>
-            </div>
-            <div class="signup-field full">
-              <label for="signup-password">Create Password</label>
-              <div class="login-input">
-              <span data-icon="lock-keyhole"></span>
-              <input
-              id="signup-password"
-              required
-              type="password"
-              minlength="6"
-              placeholder="••••••••"
-              />
-              </div>
-            </div>
-          </div>
-
-          <p class="signup-error" role="alert" hidden></p>
-          <button class="login-submit" type="submit">Create Customer Account</button>
-
-          <div class="signup-prompt">
-            <span>Already have an account? </span>
-            <button type="button" id="back-to-login" class="text-link">Sign-in here</button>
+          <div class="login-demo-roles" id="staff-demo" role="group" aria-label="Fill demo staff credentials" hidden>
+            <button type="button" data-demo-role="admin">Admin</button>
+            <button type="button" data-demo-role="sales">Sales</button>
+            <button type="button" data-demo-role="tech">Tech</button>
+            <button type="button" data-demo-role="inventory">Inventory</button>
           </div>
         </form>
       </section>

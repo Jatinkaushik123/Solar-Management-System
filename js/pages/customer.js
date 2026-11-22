@@ -267,12 +267,18 @@ window.BW.controllers = window.BW.controllers || {};
       li.append(left, el("b", "", l.total != null ? paise(l.total) : "—"));
       items.append(li);
     }
-    const inst = pick(q, "installation_paise", "pricing.installation_paise", "terms.installation_paise");
+    const estimate = q.lines?.[0]?.estimate;
+    const inst = estimate?.installation_paise ?? pick(q, "installation_paise", "pricing.installation_paise", "terms.installation_paise");
     if (inst != null) {
       const li = el("li");
       const left = el("div");
       left.append(el("small", "", "Installation"), el("strong", "", "Installation & commissioning"));
       li.append(left, el("b", "", paise(inst)));
+      items.append(li);
+    }
+    if (estimate?.gst_paise != null) {
+      const li = el("li");
+      li.append(el("strong", "", "GST (included in total)"), el("b", "", paise(estimate.gst_paise)));
       items.append(li);
     }
     const discount = pick(q, "discount_paise", "pricing.discount_paise", "terms.discount_paise");
@@ -297,6 +303,10 @@ window.BW.controllers = window.BW.controllers || {};
     };
     row("Total", paise(total), "is-net");
     row(`Advance${pct}`, paise(advance), "is-gross");
+    if (estimate?.subsidy_paise > 0 && total != null) {
+      row("Estimated PM Surya Ghar subsidy", paise(estimate.subsidy_paise), "is-subsidy");
+      row("Estimated cost after subsidy", paise(total - estimate.subsidy_paise));
+    }
     const validUntil = pick(q, "valid_until", "terms.valid_until");
     if (validUntil) row("Valid until", BW.utils.formatDate(validUntil));
     if (q.decided_at) row("Decided", BW.utils.formatDate(q.decided_at));

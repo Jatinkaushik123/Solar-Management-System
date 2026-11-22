@@ -1499,6 +1499,35 @@ body:has(dialog[open]) {
   font-size: 13px;
   color: #94a3b8;
 }
+
+.login-hint {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.login-demo-roles:not([hidden]) {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.login-demo-roles button {
+  padding: 0.35rem 0.8rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.login-demo-roles button:hover,
+.login-demo-roles button:focus-visible {
+  color: var(--gold);
+}
 .text-link {
   color: #F59E0B;
   background: transparent;
@@ -2679,19 +2708,4 @@ input.field-invalid {
   background: rgba(10, 17, 30, 0.55);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 7px;
-}
-
-/* Local demo content under a live panel is labelled as prototype */
-#live-workflow ~ #page-content::before,
-#live-ops ~ #page-content::before {
-  content: "Prototype · local demo data below — not from the live API";
-  display: block;
-  margin-bottom: 16px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  font-size: 12px;
-  letter-spacing: 0.02em;
-  color: #fcd34d;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px dashed rgba(245, 158, 11, 0.4);
 }

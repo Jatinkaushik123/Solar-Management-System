@@ -1,15 +1,8 @@
-/**
- * Bijli Wala SIMS — Login & Customer Sign-Up Controller
- * Signs in through the hosted Supabase Auth with a portal gate
- * ("customer" or "staff" via GET /v1/me?portal=...). Credentials come from the
- * form only and are never stored.
- */
+/** Sign in or register through Supabase Auth and the server's portal gate. */
 (() => {
   "use strict";
 
   const destination = (user) => BW.auth.takeRedirect(user) || `pages/${user.defaultLanding || "dashboard.html"}`;
-
-  // Already signed in: go to the saved deep link, or this user's landing page.
   const currentUser = BW.auth.current();
   if (currentUser) {
     location.replace(destination(currentUser));
@@ -22,135 +15,120 @@
 
   const tabCustomer = document.querySelector("#tab-login");
   const tabStaff = document.querySelector("#tab-admin");
-  const loginForm = document.querySelector("#login-form");
-  const signupForm = document.querySelector("#signup-form");
-  const toggleSignupBtn = document.querySelector("#toggle-signup");
-  const backToLoginBtn = document.querySelector("#back-to-login");
-  const signupPrompt = toggleSignupBtn?.closest(".signup-prompt");
+  const form = document.querySelector("#login-form");
+  const customerName = document.querySelector("#customer-name");
+  const nameInput = document.querySelector("#display-name");
   const emailInput = document.querySelector("#email");
   const passwordInput = document.querySelector("#password");
-  const toggleVisibilityBtn = document.querySelector("#visibility");
-  const loginError = document.querySelector(".login-error");
-  const signupError = document.querySelector(".signup-error");
-  const submitBtn = loginForm?.querySelector(".login-submit");
-
-  let portal = "customer";
+  const visibility = document.querySelector("#visibility");
+  const errorMessage = document.querySelector(".login-error");
+  const submit = form.querySelector(".login-submit");
+  const customerDemo = document.querySelector("#customer-demo");
+  const staffDemo = document.querySelector("#staff-demo");
+  const demoCustomerEmail = "customer@bijliwala.in";
+  const demoPassword = "Bijli@123";
+  let portal;
 
   function setPortal(next) {
+    if (portal && portal !== next) {
+      emailInput.value = "";
+      passwordInput.value = "";
+    }
     portal = next;
     const isCustomer = next === "customer";
     tabCustomer.classList.toggle("active", isCustomer);
     tabStaff.classList.toggle("active", !isCustomer);
     tabCustomer.setAttribute("aria-selected", String(isCustomer));
     tabStaff.setAttribute("aria-selected", String(!isCustomer));
+    customerName.hidden = customerDemo.hidden = !isCustomer;
+    staffDemo.hidden = isCustomer;
     emailInput.placeholder = isCustomer ? "you@example.com" : "staff email";
-    submitBtn.textContent = isCustomer ? "Sign in to customer portal" : "Sign in to staff portal";
-    // Only customers can self-register; staff join by admin invitation.
-    if (signupPrompt) signupPrompt.hidden = !isCustomer;
-    loginError.hidden = true;
-  }
-  tabCustomer?.addEventListener("click", () => setPortal("customer"));
-  tabStaff?.addEventListener("click", () => setPortal("staff"));
-  const nextParam = new URLSearchParams(location.search).get("next") || "";
-  setPortal(nextParam && !/^pages\/customer-/i.test(nextParam) ? "staff" : "customer");
-
-  function show(el, message) {
-    el.textContent = message;
-    el.hidden = false;
+    submit.textContent = isCustomer ? "Sign In / Quick Register" : "Sign In to Staff Portal";
+    errorMessage.hidden = true;
   }
 
-  function signInMessage(err) {
-    if (err.status === 400) return "Email or password is incorrect.";
-    if (err.status === 401) return "This account cannot sign in. It may be disabled or unconfirmed.";
-    if (err.status === 403) {
-      return portal === "customer"
-        ? "This is a staff account. Switch to the Staff tab to sign in."
-        : "This account is not a staff account. Switch to the Customer tab to sign in.";
+  tabCustomer.addEventListener("click", () => setPortal("customer"));
+  tabStaff.addEventListener("click", () => setPortal("staff"));
+  const next = new URLSearchParams(location.search).get("next");
+  setPortal(next && !/^pages\/customer-/i.test(next) ? "staff" : "customer");
+
+  function signInMessage(error) {
+    if (error.code === "email_confirmation_required" || error.code === "email_not_confirmed") {
+      return "This account is pending email confirmation. Check your inbox for a confirmation link.";
     }
-    if (err.status === 429) return "Too many attempts. Please wait a minute and try again.";
-    if (!err.status) return "Can't reach the sign-in service. Check your connection and try again.";
-    return `Sign-in failed (${err.status}${err.code ? " · " + err.code : ""}).`;
+    if (error.code === "weak_password") return "Choose a password with at least 6 characters.";
+    if (error.code === "email_address_invalid") return "Enter a valid email address.";
+    if (["invalid_credentials", "user_already_exists", "email_exists"].includes(error.code)) {
+      return portal === "customer"
+        ? "Check your email and password. Add your name if you're creating an account."
+        : "Check your staff email and password.";
+    }
+    if (error.code === "wrong_portal") {
+      return portal === "customer" ? "Use the Staff tab for this account." : "Use the Customer tab for this account.";
+    }
+    if (error.status === 429 && error.code === "over_email_send_rate_limit") {
+      return "Signup email limit reached on the demo project. Click ‘Fill Sample Customer’ below to sign in instantly.";
+    }
+    if (error.status === 429) return "Too many attempts. Wait a minute and try again.";
+    if (!error.status) return "Can't reach the sign-in service. Check your connection and try again.";
+    return `Sign-in failed (${error.status}${error.code ? " · " + error.code : ""}).`;
   }
 
-  toggleSignupBtn?.addEventListener("click", () => {
-    loginForm.hidden = true;
-    signupForm.hidden = false;
-    signupError.hidden = true;
-    document.querySelector("#signup-name")?.focus();
+  function showError(message) {
+    errorMessage.textContent = message;
+    errorMessage.hidden = false;
+  }
+
+  visibility.addEventListener("click", () => {
+    const show = passwordInput.type === "password";
+    passwordInput.type = show ? "text" : "password";
+    visibility.setAttribute("aria-label", show ? "Hide password" : "Show password");
+    visibility.replaceChildren(BW.ui.icon(show ? "eye-off" : "eye"));
   });
 
-  backToLoginBtn?.addEventListener("click", () => {
-    signupForm.hidden = true;
-    loginForm.hidden = false;
-    loginError.hidden = true;
+  function fillDemo(email) {
+    emailInput.value = email;
+    passwordInput.value = demoPassword;
+    errorMessage.hidden = true;
+  }
+
+  document.querySelector("#fill-customer").addEventListener("click", () => {
+    nameInput.value = "";
+    fillDemo(demoCustomerEmail);
     emailInput.focus();
   });
 
-  toggleVisibilityBtn?.addEventListener("click", () => {
-    const isPassword = passwordInput.type === "password";
-    passwordInput.type = isPassword ? "text" : "password";
-    toggleVisibilityBtn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
-    toggleVisibilityBtn.replaceChildren(BW.ui.icon(isPassword ? "eye-off" : "eye"));
+  staffDemo.querySelectorAll("[data-demo-role]").forEach((button) => {
+    button.addEventListener("click", () => fillDemo(`${button.dataset.demoRole}@bijliwala.in`));
   });
 
-  loginForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    loginError.hidden = true;
-    if (!emailInput.value.trim() || !passwordInput.value) {
-      show(loginError, "Enter your email and password.");
-      return;
-    }
-    submitBtn.disabled = true;
-    const label = submitBtn.textContent;
-    submitBtn.textContent = "Signing in…";
+  form.addEventListener("input", () => { errorMessage.hidden = true; });
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (submit.disabled) return;
+    errorMessage.hidden = true;
+    const name = nameInput.value.trim();
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    const canRegister = portal === "customer" && !!name && email.toLowerCase() !== demoCustomerEmail;
+
+    const controls = [tabCustomer, tabStaff, ...form.querySelectorAll("button, input")];
+    controls.forEach((control) => { control.disabled = true; });
+    const label = submit.textContent;
+    submit.textContent = "Signing in…";
     try {
-      const user = await BW.auth.login(portal, emailInput.value, passwordInput.value);
+      const user = await BW.auth.login(portal, email, password).catch((error) => {
+        if (!canRegister || error.code !== "invalid_credentials") throw error;
+        if (password.length < 6) throw Object.assign(new Error("weak_password"), { code: "weak_password" });
+        submit.textContent = "Creating account…";
+        return BW.auth.signupCustomer({ name, email, password });
+      });
       passwordInput.value = "";
-      location.assign(destination(user));
-    } catch (err) {
-      show(loginError, signInMessage(err));
-      submitBtn.disabled = false;
-      submitBtn.textContent = label;
-    }
-  });
-
-  loginForm?.addEventListener("input", () => {
-    loginError.hidden = true;
-  });
-
-  signupForm?.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    signupError.hidden = true;
-    const name = document.querySelector("#signup-name").value.trim();
-    const email = document.querySelector("#signup-email").value.trim();
-    const passField = document.querySelector("#signup-password");
-    if (!name || !email || !passField.value) {
-      show(signupError, "Enter your name, email and a password.");
-      return;
-    }
-    if (passField.value.length < 6) {
-      show(signupError, "Password must be at least 6 characters.");
-      return;
-    }
-    const btn = signupForm.querySelector(".login-submit");
-    btn.disabled = true;
-    try {
-      await BW.auth.signupCustomer({ name, email, password: passField.value });
-      passField.value = "";
-      signupError.classList.add("signup-success");
-      show(signupError, `Account created. We've sent a confirmation link to ${email}. Confirm it, then sign in on the Customer tab.`);
-    } catch (err) {
-      signupError.classList.remove("signup-success");
-      show(
-        signupError,
-        err.status === 429
-          ? "Too many sign-up emails right now. Please try again in a few minutes."
-          : err.status === 422 || err.status === 400
-            ? "That email can't be registered (it may already have an account)."
-            : `Sign-up failed (${err.status || "network"}${err.code ? " · " + err.code : ""}).`,
-      );
-    } finally {
-      btn.disabled = false;
+      location.replace(destination(user));
+    } catch (error) {
+      showError(signInMessage(error));
+      controls.forEach((control) => { control.disabled = false; });
+      submit.textContent = label;
     }
   });
 })();

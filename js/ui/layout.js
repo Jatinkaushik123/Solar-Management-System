@@ -227,7 +227,8 @@ window.BW = window.BW || {};
     });
     resetBtn.hidden = user?.role !== "admin";
 
-    const logoutBtn = item("Logout", "log-out", () => BW.auth.logout(), "profile-logout");
+    const logoutBtn = item("Log Out", "log-out", null, "profile-logout");
+    logoutBtn.dataset.action = "logout";
 
     // Switching account = sign out and sign in again (Supabase session).
     // Admin also keeps Reset Demo Data for the local demo records.
@@ -414,6 +415,15 @@ window.BW = window.BW || {};
       }
     });
   }
+
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest?.('[data-action="logout"], #logout-btn, .logout-btn');
+    if (!target) return;
+    e.preventDefault();
+    target.setAttribute("aria-disabled", "true");
+    if (target.lastChild?.nodeType === Node.TEXT_NODE) target.lastChild.textContent = "Signing out…";
+    BW.auth.logout();
+  }, { capture: true });
 
   document.addEventListener("DOMContentLoaded", () => {
     BW.page = document.body.dataset.page;

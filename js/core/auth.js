@@ -139,7 +139,7 @@ window.BW = window.BW || {};
 
   // identity-client.mjs sits next to this file; resolve it from this script's URL
   // so pages in /pages/ and the root login page both load it.
-  const CLIENT_URL = new URL("./identity-client.mjs", document.currentScript?.src || location.href).href;
+  const CLIENT_URL = new URL("./identity-client.mjs?v=2", document.currentScript?.src || location.href).href;
   let clientPromise = null;
   const loadModule = () => (clientPromise ||= import(CLIENT_URL));
 
@@ -178,15 +178,15 @@ window.BW = window.BW || {};
 
   /** Same contract as identity-client.mjs request(), with the active project's key. */
   function makeRequest(publishableKey) {
-    return async function request(url, { method = "GET", token, body, idempotencyKey } = {}) {
+    return async function request(url, { method = "GET", token, body, idempotencyKey, signal } = {}) {
       const headers = { apikey: publishableKey };
       if (token) headers.Authorization = "Bearer " + token;
       if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
       if (body !== undefined) headers["Content-Type"] = "application/json";
-      const response = await fetch(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
+      const response = await fetch(url, { method, headers, signal, body: body === undefined ? undefined : JSON.stringify(body) });
       const data = await response.json().catch(() => null);
       if (!response.ok) {
-        const code = data?.error?.code || data?.error_code || "request_failed";
+        const code = data?.error?.code || data?.error_code || (typeof data?.code === "string" ? data.code : "request_failed");
         throw Object.assign(new Error(code), { status: response.status, code });
       }
       return data;
@@ -213,18 +213,22 @@ window.BW = window.BW || {};
   /** Auth helpers mirroring identity-client.mjs, bound to the active backend. */
   async function authApi() {
     const c = await client();
-    const signOut = (token) => c.request(c.SUPABASE_URL + "/auth/v1/logout?scope=local", { method: "POST", token });
+    const signOut = (token, signal = AbortSignal.timeout(2000)) =>
+      c.request(c.SUPABASE_URL + "/auth/v1/logout?scope=local", { method: "POST", token, signal });
     const getMe = (token, portal) =>
       c.request(c.API_BASE + "/v1/me" + (portal ? "?portal=" + encodeURIComponent(portal) : ""), { token });
     return {
       signOut,
       getMe,
-      getProfile: (token, id) => c.request(c.API_BASE + "/v1/profiles/" + encodeURIComponent(id), { token }),
       signUpCustomer: (email, password, displayName = "") =>
         c.request(c.SUPABASE_URL + "/auth/v1/signup", { method: "POST", body: { email, password, data: { display_name: displayName } } }),
       async signIn(portal, email, password) {
         if (portal !== "customer" && portal !== "staff") throw new Error("invalid_portal");
-        const session = await c.request(c.SUPABASE_URL + "/auth/v1/token?grant_type=password", { method: "POST", body: { email, password } });
+        const session = await c.request(c.SUPABASE_URL + "/auth/v1/token?grant_type=password", { method: "POST", body: { email, password } }).catch((error) => {
+          // Older Auth responses may report invalid credentials with only a 400 status.
+          if (error.status === 400 && error.code === "request_failed") error.code = "invalid_credentials";
+          throw error;
+        });
         try {
           return { session, me: await getMe(session.access_token, portal) };
         } catch (error) {
@@ -265,11 +269,14 @@ window.BW = window.BW || {};
   }
 
   function writeSession(sess) {
-    if (sess) getStorage()?.setItem(SESSION_KEY, JSON.stringify(sess));
-    else getStorage()?.removeItem(SESSION_KEY);
+    if (sess) {
+      if (!loggingOut) getStorage()?.setItem(SESSION_KEY, JSON.stringify(sess));
+    } else {
+      getStorage()?.removeItem(SESSION_KEY);
+    }
   }
 
-  function sessionFromAuth(authSession, me, profile) {
+  function sessionFromAuth(authSession, me) {
     const expiresAt =
       authSession.expires_at || Math.floor(Date.now() / 1000) + Number(authSession.expires_in || 3600);
     return {
@@ -279,7 +286,7 @@ window.BW = window.BW || {};
       user: {
         id: me.id,
         email: me.email,
-        name: profile?.display_name || me.display_name || me.email,
+        name: me.display_name || me.email,
         backendRole: me.role,
         role: toUiRole(me.role),
         portal: me.portal,
@@ -313,17 +320,28 @@ window.BW = window.BW || {};
    * Throws an Error with .status/.code from the API on failure.
    */
   async function login(portal, email, password) {
-    const { signIn, getProfile } = await authApi();
+    const { signIn } = await authApi();
     const { session, me } = await signIn(portal, String(email || "").trim(), password);
-    const profile = await getProfile(session.access_token, me.id).catch(() => null);
-    writeSession(sessionFromAuth(session, me, profile));
+    writeSession(sessionFromAuth(session, me));
     return current();
   }
 
-  /** Customer self-registration. Supabase requires email confirmation before sign-in. */
+  /** Customer self-registration with the same portal gate as password sign-in. */
   async function signupCustomer({ name, email, password }) {
-    const { signUpCustomer } = await authApi();
-    return signUpCustomer(String(email || "").trim(), password, String(name || "").trim());
+    const { signUpCustomer, getMe, signOut } = await authApi();
+    const session = await signUpCustomer(String(email || "").trim(), password, String(name || "").trim());
+    if (!session?.access_token) {
+      const code = session?.identities?.length === 0 ? "user_already_exists" : "email_confirmation_required";
+      throw Object.assign(new Error(code), { code });
+    }
+    try {
+      const me = await getMe(session.access_token, "customer");
+      writeSession(sessionFromAuth(session, me));
+      return current();
+    } catch (error) {
+      await signOut(session.access_token).catch(() => {});
+      throw error;
+    }
   }
 
   function loginUrl() {
@@ -344,6 +362,7 @@ window.BW = window.BW || {};
 
   /** Go to the login page, remembering where the user was headed. */
   function sendToLogin() {
+    if (loggingOut) return; // logout is already navigating to the login screen
     const target = currentTarget();
     let url = loginUrl();
     if (target) {
@@ -369,19 +388,59 @@ window.BW = window.BW || {};
     return target;
   }
 
-  async function logout() {
-    const sess = readSession();
-    writeSession(null);
-    if (sess?.access_token) {
+  /* ---------- Logout ----------
+     Always ends locally, whatever the network does:
+       1. mark logging-out (in-flight API calls stop redirecting/saving targets),
+       2. try the remote revoke for at most 2 s (expired token / offline / CORS ignored),
+       3. finally clear every per-user key and replace the page with the login screen. */
+  let loggingOut = false;
+
+  /** Remove every per-user browser key (keeps local demo data and the dev override). */
+  function clearUserState() {
+    const userKey = (k) =>
+      k === SESSION_KEY ||
+      k === REDIRECT_KEY ||
+      k.startsWith("bijli-wala.idem.") ||
+      k.startsWith("bijli-wala.evidence.") ||
+      /^(?:bw[_.-]|bijli-wala\.)(?:auth|session|user|redirect|post_login_redirect)(?:[_.-]|$)/i.test(k) ||
+      k === "supabase.auth.token" ||
+      /^sb-.+-auth-token/.test(k);
+    for (const storageName of ["sessionStorage", "localStorage"]) {
       try {
-        const { signOut } = await authApi();
-        await signOut(sess.access_token);
+        const store = window[storageName];
+        for (const k of Object.keys(store)) if (userKey(k)) store.removeItem(k);
       } catch {
-        // Already expired or offline: the local session is cleared either way.
+        /* storage unavailable */
       }
     }
-    location.href = loginUrl();
   }
+
+  async function logout() {
+    if (loggingOut) return;
+    loggingOut = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    try {
+      const sess = readSession();
+      if (sess?.access_token) {
+        // The clock includes loading the auth module as well as the network request.
+        const aborted = new Promise((resolve) => controller.signal.addEventListener("abort", resolve, { once: true }));
+        const revoke = authApi().then(({ signOut }) => signOut(sess.access_token, controller.signal));
+        await Promise.race([revoke, aborted]);
+      }
+    } catch {
+      // Expired token (401), offline, CORS or timeout: the local session still ends.
+    } finally {
+      clearTimeout(timeout);
+      clearUserState();
+      location.replace(loginUrl());
+    }
+  }
+
+  window.addEventListener("pageshow", (event) => {
+    // A protected page restored from the back-forward cache has already run its guard.
+    if (event.persisted && currentTarget() && !readSession()) location.replace(loginUrl());
+  });
 
   // Single-flight refresh: parallel requests near expiry share one refresh call,
   // because Supabase rotates refresh tokens and reusing an old one can revoke the session.

@@ -39,6 +39,10 @@ python -m http.server 8765        # or: npx serve -l 8765 .
 
 Open http://localhost:8765/ and sign in on the **Customer** or **Staff** tab. Accounts live in Supabase Auth.
 
+Customers can enter their name, email, and a password of at least six characters to register from the same form. Returning customers use their email and password. The existing signup trigger stores the display name in `public.solar_profiles`, keyed to the account ID in `auth.users`, where the email is stored.
+
+**Fill Sample Customer** fills the pre-confirmed `customer@bijliwala.in` account. The Staff tab has demo fill buttons for Admin, Sales, Tech, and Inventory. All five use `Bijli@123` and authenticate against Supabase. Use these shared accounts only in the demo environment.
+
 ## 2. How it connects to the backend
 
 | Setting | Value (from `js/core/identity-client.mjs`) |
@@ -72,7 +76,7 @@ localStorage.removeItem("bw_supabase_override"); location.reload();
 ```bash
 cd backend/bijli-wala-backend-v10
 supabase start                         # local Postgres, Auth, Storage on :54321
-supabase db reset                      # apply supabase/migrations/*
+supabase db reset                      # apply migrations and seed the demo accounts
 supabase functions serve api --env-file supabase/.env.local
 ```
 
@@ -80,6 +84,8 @@ supabase functions serve api --env-file supabase/.env.local
 `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RESEND_API_KEY`, `QUOTE_EMAIL_FROM`, `QUOTE_PORTAL_URL`.
 
 ### Deploy the backend (project owner)
+
+For the hosted demo, open **Authentication → Sign In / Providers → Email** and turn off **Confirm email** to enable immediate customer signup. In **Authentication → Configuration**, set the minimum password length to six if the project has a higher minimum. The local Supabase configuration already sets these values. The demo staff seed at `supabase/seed.sql` can be run from the hosted demo SQL Editor. It skips existing email addresses and does not overwrite roles, passwords, or fixtures.
 
 ```bash
 cd backend/bijli-wala-backend-v10
